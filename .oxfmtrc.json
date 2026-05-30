@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    ".git/**",
+    "aube-lock.yaml",
+    "**/aube-lock.yaml",
+    "dist/**",
+    "node_modules/**",
+    "out/**",
+    "coverage/**"
+  ]
+}

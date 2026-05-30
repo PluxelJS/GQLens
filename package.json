@@ -1,0 +1,44 @@
+{
+  "name": "ts-starter",
+  "version": "0.1.0",
+  "description": "A lean native TypeScript starter for Node.js.",
+  "license": "Apache-2.0",
+  "bin": {
+    "ts-starter": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "dev": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives src test",
+    "format": "oxfmt --check .",
+    "format:write": "oxfmt --write .",
+    "test": "vitest run",
+    "build": "tsdown --minify",
+    "verify": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives src test && oxfmt --check . && tsc --noEmit && vitest run && tsdown --minify"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "oxfmt": "^0.51.0",
+    "oxlint": "^1.66.0",
+    "tsdown": "^0.22.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=24.12"
+  }
+}
