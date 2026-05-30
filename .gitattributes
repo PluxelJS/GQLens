@@ -1,2 +1,3 @@
-# Auto detect text files and perform LF normalization
 * text=auto
+aube-lock.yaml text=auto eol=lf merge=union
+packages/*/dist/** -diff linguist-generated=true

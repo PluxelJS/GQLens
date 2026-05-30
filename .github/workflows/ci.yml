@@ -25,5 +25,11 @@ jobs:
       - name: Install dependencies
         run: aube install --frozen-lockfile
 
-      - name: Verify
-        run: aube verify
+      - name: Lint
+        run: aube run lint
+
+      - name: Format check
+        run: aube run format
+
+      - name: Type check, build & test
+        run: turbo run typecheck build test

@@ -24,7 +24,11 @@
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
-    "types": ["node"]
+    "paths": {
+      "@gqlens/core": ["./packages/core/src/index.ts"],
+      "@gqlens/react": ["./packages/react/src/index.ts"],
+      "@gqlens/solid": ["./packages/solid/src/index.ts"]
+    }
   },
-  "include": ["src", "test", "*.config.mts"]
+  "include": []
 }

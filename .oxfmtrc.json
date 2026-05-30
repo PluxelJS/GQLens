@@ -4,7 +4,9 @@
     ".git/**",
     "aube-lock.yaml",
     "**/aube-lock.yaml",
+    ".turbo/**",
     "dist/**",
+    "packages/*/dist/**",
     "node_modules/**",
     "out/**",
     "coverage/**"

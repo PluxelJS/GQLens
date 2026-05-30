@@ -1,0 +1,39 @@
+{
+  "name": "@gqlens/react",
+  "version": "0.1.0",
+  "description": "GQLens React bindings — hooks and components.",
+  "license": "Apache-2.0",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsdown --minify"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "react": "^19.1.0"
+  },
+  "peerDependencies": {
+    "@gqlens/core": "workspace:*",
+    "react": ">=18"
+  },
+  "engines": {
+    "node": ">=24.12"
+  }
+}

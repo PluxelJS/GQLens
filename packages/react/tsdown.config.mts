@@ -3,16 +3,21 @@ import { defineConfig } from "tsdown";
 const config: ReturnType<typeof defineConfig> = defineConfig({
   entry: {
     index: "src/index.ts",
-    cli: "src/cli.ts",
   },
   outDir: "dist",
   format: "esm",
-  platform: "node",
-  target: "node24",
+  platform: "neutral",
+  target: "esnext",
   clean: true,
   dts: true,
   sourcemap: true,
   shims: false,
+  deps: {
+    neverBundle: ["react", "@gqlens/core"],
+  },
+  exports: {
+    devExports: "development",
+  },
 });
 
 export default config;

@@ -3,3 +3,7 @@ dist
 out
 coverage
 *.tsbuildinfo
+*.log
+.aube
+.turbo
+.DS_Store

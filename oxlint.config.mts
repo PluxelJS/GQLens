@@ -82,6 +82,7 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     node: true,
     vitest: true,
   },
+  ignorePatterns: ["**/dist/**", "**/coverage/**", "**/out/**", ".turbo/**"],
 });
 
 export default config;
