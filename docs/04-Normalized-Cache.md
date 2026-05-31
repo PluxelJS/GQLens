@@ -67,8 +67,28 @@ interface NormalizedSignalCache {
   entity(type: string, id: string): EntityRef
   normalize(data: GraphQLResult): void
   invalidate(ref: EntityRef, keys?: string[]): void
+  evict(ref: EntityRef): void
 }
 ```
+
+## TTL 与驱逐
+
+网络环境下的数据天然存在时效性。cache 按字段粒度维护 TTL：
+
+```
+User:1.name   → { data: "Alice",  expires: 1717000000 }
+User:1.online → { data: true,     expires: 1717000030 }
+```
+
+| 驱逐策略   | 行为                                           |
+| ---------- | ---------------------------------------------- |
+| TTL        | 字段写入时记录过期时间，过期后标记为 stale       |
+| Sieve      | 若 stale 字段仍在被 active selection 引用则不驱逐，否则可被回收 |
+| `evict()`  | 主动驱逐指定实体的所有字段                      |
+
+驱逐触发时，对应 signal 重置为 `undefined`。下一次被读取时产生 cache miss，触发 selection 合并与网络请求——自然地回到 `cache-and-network` 流程。
+
+引用为 0（无 active selection 依赖该 entity）且已过期的 entity 由后台 GC 自动回收，无需手动管理。
 
 ## 一致性
 

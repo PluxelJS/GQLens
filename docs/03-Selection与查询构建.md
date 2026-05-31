@@ -121,19 +121,23 @@ query UserDemand($id: ID!) {
 
 ## 查询策略
 
-| 策略               | 语义                                     |
-| ------------------ | ---------------------------------------- |
-| `cache-first`      | 有缓存直接返回，缺失字段另行请求         |
-| `cache-and-network`| 先返回缓存，同时后台刷新                 |
-| `network-only`     | 直接请求并写入缓存                       |
-| `live`             | 建立持续订阅，服务端推送后写入缓存       |
+缓存策略决定 fetch 传输模式下如何协调缓存与网络：
 
-普通查询与 live 查询使用同一套 accessor，区别仅在 scheduler：
+| 策略               | 语义                                       |
+| ------------------ | ------------------------------------------ |
+| `cache-first`      | 有缓存直接返回，缺失字段另行请求           |
+| `cache-and-network`| 先返回缓存，同时后台 fetch（**推荐默认**）|
+| `network-only`     | 跳过缓存，直接请求并写入                   |
+
+默认策略为 `cache-and-network`——对 web 场景而言，它在即时响应与数据时效性之间取得最佳平衡。
+
+## Live 查询
+
+live 不是缓存策略，而是独立的**传输模式**。它通过持续订阅（WebSocket / SSE）替代一次性 fetch：
 
 ```ts
-const q    = useQuery()       // 一次性 fetch
-const live = useLiveQuery()   // 持续订阅
-
-q.user({ id }).name()
-live.user({ id }).name()      // API 完全一致
+const live = useLiveQuery()
+live.user({ id }).name()   // 同一套 accessor API
 ```
+
+一个 QuerySession 内共享一条 live 连接。服务端按 root + args 区分不同 selection，推送 patch 到对应 field signal。组件卸载时对应的 selection 从 session 移除，不影响其他组件的订阅。不需要手动管理连接生命周期。
