@@ -26,7 +26,7 @@ Todo:9.done      → Signal<boolean>
 cache.field({ type: "User", id: "1" }, "name").set("Alice")
 ```
 
-仅通知读过 `q.user({ id: "1" }).name()` 的 reader。
+仅通知读过 `q.user({ id: "1" }).name` 的 reader。
 
 ## 路径归一
 
@@ -67,28 +67,21 @@ interface NormalizedSignalCache {
   entity(type: string, id: string): EntityRef
   normalize(data: GraphQLResult): void
   invalidate(ref: EntityRef, keys?: string[]): void
-  evict(ref: EntityRef): void
 }
 ```
 
-## TTL 与驱逐
+## TTL
 
-网络环境下的数据天然存在时效性。cache 按字段粒度维护 TTL：
+cache 按字段粒度维护 TTL，采用**惰性驱逐**：
 
 ```
 User:1.name   → { data: "Alice",  expires: 1717000000 }
 User:1.online → { data: true,     expires: 1717000030 }
 ```
 
-| 驱逐策略   | 行为                                           |
-| ---------- | ---------------------------------------------- |
-| TTL        | 字段写入时记录过期时间，过期后标记为 stale       |
-| Sieve      | 若 stale 字段仍在被 active selection 引用则不驱逐，否则可被回收 |
-| `evict()`  | 主动驱逐指定实体的所有字段                      |
+读取时检测 TTL：未过期直接返回；已过期则保留旧值返回、同时后台触发 `cache-and-network` fetch。fetch 完成后覆盖旧值并更新 TTL。
 
-驱逐触发时，对应 signal 重置为 `undefined`。下一次被读取时产生 cache miss，触发 selection 合并与网络请求——自然地回到 `cache-and-network` 流程。
-
-引用为 0（无 active selection 依赖该 entity）且已过期的 entity 由后台 GC 自动回收，无需手动管理。
+用户通过 `useQuery({ ttl })` 配置默认 TTL，`0` 表示永不过期。
 
 ## 一致性
 
