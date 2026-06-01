@@ -2,7 +2,8 @@
   "compilerOptions": {
     "target": "ESNext",
     "lib": ["ESNext"],
-    "module": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noFallthroughCasesInSwitch": true,
@@ -15,18 +16,20 @@
     "noUnusedParameters": true,
     "declaration": true,
     "erasableSyntaxOnly": true,
+    "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true,
     "isolatedDeclarations": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
     "resolveJsonModule": true,
-    "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "paths": {
+      "@gqlens/codegen": ["./packages/codegen/src/index.ts"],
       "@gqlens/core": ["./packages/core/src/index.ts"],
-      "@gqlens/react": ["./packages/react/src/index.ts"],
+      "@gqlens/core/codegen": ["./packages/core/codegen/index.ts"],
+      "@gqlens/react": ["./packages/react/src/index.tsx"],
       "@gqlens/solid": ["./packages/solid/src/index.ts"]
     }
   },

@@ -2,7 +2,7 @@ import { defineConfig } from "tsdown";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
   entry: {
-    index: "src/index.ts",
+    index: "src/index.tsx",
   },
   outDir: "dist",
   format: "esm",

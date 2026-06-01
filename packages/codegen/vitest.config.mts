@@ -6,6 +6,7 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     conditions: ["development"],
     alias: {
       "@gqlens/core": new URL("../core/src/index.ts", import.meta.url).pathname,
+      "@gqlens/core/codegen": new URL("../core/codegen/index.ts", import.meta.url).pathname,
     },
   },
   test: {

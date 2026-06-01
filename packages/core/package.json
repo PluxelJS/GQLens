@@ -10,13 +10,18 @@
   "exports": {
     ".": {
       "development": "./src/index.ts",
-      "default": "./dist/index.mjs"
+      "default": "./dist/index.js"
+    },
+    "./codegen": {
+      "development": "./codegen/index.ts",
+      "default": "./dist/codegen.js"
     },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.mjs",
+      ".": "./dist/index.js",
+      "./codegen": "./dist/codegen.js",
       "./package.json": "./package.json"
     }
   },
@@ -24,6 +29,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsdown --minify"
+  },
+  "dependencies": {
+    "alien-signals": "^3.2"
   },
   "engines": {
     "node": ">=24.12"

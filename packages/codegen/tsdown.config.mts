@@ -1,13 +1,10 @@
 import { defineConfig } from "tsdown";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
-  entry: {
-    index: "src/index.ts",
-    codegen: "codegen/index.ts",
-  },
+  entry: { index: "src/index.ts" },
   outDir: "dist",
   format: "esm",
-  platform: "neutral",
+  platform: "node",
   clean: true,
   dts: true,
   sourcemap: true,

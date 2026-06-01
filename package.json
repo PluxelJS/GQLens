@@ -9,7 +9,7 @@
     "lint": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives packages",
     "format": "oxfmt --check .",
     "format:write": "oxfmt --write .",
-    "verify": "aube run lint && aube run format && turbo run typecheck build test"
+    "verify": "npm run lint && npm run format && turbo run typecheck build test"
   },
   "devDependencies": {
     "@types/node": "^24.12.4",

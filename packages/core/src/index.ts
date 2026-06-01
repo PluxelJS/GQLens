@@ -1,15 +1,32 @@
-export interface Lens {
-  readonly query: string;
-  readonly shape: Record<string, unknown>;
-}
+export type {
+  AlienSignal,
+  AlienSignalReader,
+  CachePolicy,
+  EntityRef,
+  FieldSignal,
+  GraphQLOperation,
+  GraphQLResult,
+  InvalidationSpec,
+  MutationOperation,
+  NormalizedCache,
+  PlannedSelectionPath,
+  PlannedSelectionStep,
+  PlannerFieldMetadata,
+  PlannerMetadata,
+  QuerySessionConfig,
+  SelectionPath,
+  SelectionStep,
+  SlotValue,
+  TransportMode,
+} from "./types";
 
-export interface LensOptions {
-  readonly query: string;
-}
-
-export function createLens(options: LensOptions): Lens {
-  return {
-    query: options.query,
-    shape: {},
-  };
-}
+export { createSignal, watchSignal } from "./signal";
+export { canonicalJSON, selectionKey, slotKey, stepKey } from "./keys";
+export { createNormalizedCache } from "./cache";
+export type { ReaderHandle, SelectionCollector } from "./collector";
+export { createSelectionCollector } from "./collector";
+export { plan } from "./planner";
+export type { QuerySession } from "./session";
+export { createQuerySession } from "./session";
+export type { Fetcher } from "./transport";
+export { createFetchTransport, createLiveTransport } from "./transport";

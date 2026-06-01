@@ -1,7 +1,7 @@
 {
-  "name": "@gqlens/react",
+  "name": "@gqlens/codegen",
   "version": "0.1.0",
-  "description": "GQLens React bindings — hooks and components.",
+  "description": "GQLens schema codegen — generates typed accessors, normalizer metadata, and invalidation specs.",
   "license": "Apache-2.0",
   "files": [
     "dist"
@@ -9,14 +9,14 @@
   "type": "module",
   "exports": {
     ".": {
-      "development": "./src/index.tsx",
-      "default": "./dist/index.js"
+      "development": "./src/index.ts",
+      "default": "./dist/index.mjs"
     },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.js",
+      ".": "./dist/index.mjs",
       "./package.json": "./package.json"
     }
   },
@@ -25,17 +25,17 @@
     "test": "vitest run",
     "build": "tsdown --minify"
   },
+  "dependencies": {
+    "@graphql-codegen/core": "^4.0.2",
+    "@graphql-codegen/typescript": "^4.1.6"
+  },
   "devDependencies": {
-    "@testing-library/react": "^16",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19",
-    "jsdom": "^29.1.1",
-    "react": "^19.1.0",
-    "react-dom": "^19"
+    "fs-fixture": "^2.14.0",
+    "graphql": "^16"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",
-    "react": ">=18"
+    "graphql": "^16"
   },
   "engines": {
     "node": ">=24.12"
