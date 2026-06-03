@@ -1,0 +1,29 @@
+{
+  "name": "gqlens-yoga-vite-codegen-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "server": "tsx src/server/prod.ts"
+  },
+  "dependencies": {
+    "@gqlens/core": "file:../../packages/core",
+    "@gqlens/react": "file:../../packages/react",
+    "graphql": "^16",
+    "graphql-yoga": "^5",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@gqlens/codegen": "file:../../packages/codegen",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.2.0",
+    "tsx": "^4",
+    "typescript": "^6",
+    "vite": "^8"
+  }
+}

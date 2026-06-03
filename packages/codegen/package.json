@@ -12,11 +12,16 @@
       "development": "./src/index.ts",
       "default": "./dist/index.mjs"
     },
+    "./rolldown": {
+      "development": "./src/rolldown.ts",
+      "default": "./dist/rolldown.mjs"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
+      "./rolldown": "./dist/rolldown.mjs",
       "./package.json": "./package.json"
     }
   },

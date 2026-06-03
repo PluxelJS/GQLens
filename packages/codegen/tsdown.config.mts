@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
-  entry: { index: "src/index.ts" },
+  entry: { index: "src/index.ts", rolldown: "src/rolldown.ts" },
   outDir: "dist",
   format: "esm",
   platform: "node",

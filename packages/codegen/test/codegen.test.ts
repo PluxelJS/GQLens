@@ -1,6 +1,9 @@
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { createFixture, type FsFixture } from "fs-fixture";
+import { buildSchema } from "graphql";
 import { generate } from "@gqlens/codegen";
+import { gqlensRolldown } from "@gqlens/codegen/rolldown";
 
 const testSchema = /* graphql */ `
   type User {
@@ -189,4 +192,79 @@ describe("@gqlens/codegen", () => {
       await f?.rm();
     }
   });
+
+  describe("rolldown plugin", () => {
+    test("generates files from a server createSchema factory", async () => {
+      let f: FsFixture | undefined;
+      try {
+        f = await createFixture();
+        const createSchema = () => buildSchema(testSchema);
+        const plugin = gqlensRolldown({
+          output: join(f.path, "generated"),
+          schema: () => createSchema(),
+          framework: "solid",
+          watch: [/schema\.ts$/],
+        });
+        const ctx = pluginContext();
+
+        await plugin.buildStart.call(ctx);
+
+        expect(await f.readFile("generated/types.ts", "utf8")).toContain("export type User = {");
+        expect(await f.readFile("generated/accessor.ts", "utf8")).toContain('from "@gqlens/solid"');
+
+        await plugin.buildEnd.call(ctx);
+        expect(await f.readFile("generated/accessor.ts", "utf8")).toContain('from "@gqlens/solid"');
+
+        await plugin.watchChange.call(ctx, join(f.path, "schema.ts"));
+        expect(await f.readFile("generated/types.ts", "utf8")).toContain("export type User = {");
+      } finally {
+        await f?.rm();
+      }
+    });
+
+    test("discovers a printSchema module and writes generated files", async () => {
+      let f: FsFixture | undefined;
+      try {
+        f = await createFixture();
+        const schemaModule = join(f.path, "schema.mjs");
+        const schemaSource = `export default /* printSchema graphql */ ${JSON.stringify(testSchema)};`;
+        await f.writeFile("schema.mjs", schemaSource, "utf8");
+
+        const plugin = gqlensRolldown({ output: join(f.path, "generated") });
+        const ctx = pluginContext();
+
+        await plugin.buildStart.call(ctx);
+        plugin.transform.handler.call(ctx, schemaSource, schemaModule);
+        await plugin.buildEnd.call(ctx);
+
+        expect(ctx.watched).toStrictEqual([schemaModule]);
+        expect(await f.readFile("generated/types.ts", "utf8")).toContain("QueryUserArgs");
+        expect(await f.readFile("generated/normalizer.ts", "utf8")).toContain('type: "User"');
+        expect(await f.readFile("generated/invalidation.ts", "utf8")).toContain(
+          "export type InvalidationSpec",
+        );
+        expect(await f.readFile("generated/accessor.ts", "utf8")).toContain(
+          "export function useQuery",
+        );
+      } finally {
+        await f?.rm();
+      }
+    });
+  });
 });
+
+function pluginContext(): {
+  watched: string[];
+  addWatchFile(id: string): void;
+  error(error: Error | string): never;
+} {
+  return {
+    watched: [],
+    addWatchFile(id) {
+      this.watched.push(id);
+    },
+    error(error): never {
+      throw error instanceof Error ? error : new Error(error);
+    },
+  };
+}
