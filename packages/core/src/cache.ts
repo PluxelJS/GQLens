@@ -185,6 +185,9 @@ function isFresh(entry: FieldEntry | undefined): boolean {
   if (!entry) {
     return false;
   }
+  if (entry.sig() === undefined) {
+    return false;
+  }
   return entry.expires === 0 || entry.expires > Date.now();
 }
 

@@ -17,7 +17,6 @@ export type {
   SelectionPath,
   SelectionStep,
   SlotValue,
-  TransportMode,
 } from "./types";
 
 export { createSignal, watchSignal } from "./signal";
@@ -27,6 +26,6 @@ export type { ReaderHandle, SelectionCollector } from "./collector";
 export { createSelectionCollector } from "./collector";
 export { plan } from "./planner";
 export type { QuerySession } from "./session";
-export { createQuerySession } from "./session";
-export type { Fetcher } from "./transport";
+export { createLiveQuerySession, createQuerySession } from "./session";
+export type { Fetcher, LiveSubscriber } from "./transport";
 export { createFetchTransport, createLiveTransport } from "./transport";

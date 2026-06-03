@@ -1,6 +1,11 @@
 import type { GraphQLOperation } from "./types";
 
 export type Fetcher = (op: GraphQLOperation) => Promise<unknown>;
+export type LiveSubscriber = (
+  op: GraphQLOperation,
+  onData: (data: unknown) => void,
+  onError?: ((error: Error) => void) | undefined,
+) => () => void;
 
 interface LiveSocket {
   send(data: string): void;
@@ -38,27 +43,33 @@ export function createFetchTransport(endpoint: string): Fetcher {
   };
 }
 
-export function createLiveTransport(
-  endpoint: string,
-): [(op: GraphQLOperation, onData: (data: unknown) => void) => void, () => void] {
+export function createLiveTransport(endpoint: string): [LiveSubscriber, () => void] {
   let socket: LiveSocket | null = null;
   let open = false;
-  const pending: string[] = [];
+  const pending: Array<{ readonly id: string; readonly payload: string }> = [];
   const listeners = new Map<string, (data: unknown) => void>();
+  const errorListeners = new Map<string, (error: Error) => void>();
   let nextId = 0;
 
-  function subscribe(op: GraphQLOperation, onData: (data: unknown) => void): void {
+  function subscribe(
+    op: GraphQLOperation,
+    onData: (data: unknown) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
     const id = `gqlens:${nextId++}`;
     listeners.set(id, onData);
+    if (onError) {
+      errorListeners.set(id, onError);
+    }
     const payload = JSON.stringify({ id, type: "subscribe", payload: op });
     if (socket && open) {
       socket.send(payload);
-      return;
+      return () => unsubscribe(id);
     }
 
-    pending.push(payload);
+    pending.push({ id, payload });
     if (socket) {
-      return;
+      return () => unsubscribe(id);
     }
 
     const ctor = (globalThis as { readonly WebSocket?: LiveSocketConstructor }).WebSocket;
@@ -70,15 +81,11 @@ export function createLiveTransport(
     socket.addEventListener("open", () => {
       open = true;
       for (const item of pending.splice(0)) {
-        socket?.send(item);
+        socket?.send(item.payload);
       }
     });
     socket.addEventListener("message", (event) => {
-      const message = JSON.parse(String(event.data)) as {
-        readonly id?: string;
-        readonly type?: string;
-        readonly payload?: unknown;
-      };
+      const message = parseMessage(event.data);
       if (message.type === "next") {
         const listener = message.id ? listeners.get(message.id) : undefined;
         if (listener) {
@@ -89,7 +96,20 @@ export function createLiveTransport(
           item(message.payload ?? {});
         }
       }
+      if (message.type === "error") {
+        const error = new Error(JSON.stringify(message.payload ?? "Live query error"));
+        const listener = message.id ? errorListeners.get(message.id) : undefined;
+        if (listener) {
+          listener(error);
+          return;
+        }
+        for (const item of errorListeners.values()) {
+          item(error);
+        }
+      }
     });
+
+    return () => unsubscribe(id);
   }
 
   function close(): void {
@@ -98,7 +118,36 @@ export function createLiveTransport(
     open = false;
     pending.splice(0);
     listeners.clear();
+    errorListeners.clear();
+  }
+
+  function unsubscribe(id: string): void {
+    listeners.delete(id);
+    errorListeners.delete(id);
+    const pendingIndex = pending.findIndex((item) => item.id === id);
+    if (pendingIndex >= 0) {
+      pending.splice(pendingIndex, 1);
+    }
+    if (socket && open) {
+      socket.send(JSON.stringify({ id, type: "unsubscribe" }));
+    }
   }
 
   return [subscribe, close];
+}
+
+function parseMessage(data: unknown): {
+  readonly id?: string | undefined;
+  readonly type?: string | undefined;
+  readonly payload?: unknown;
+} {
+  try {
+    return JSON.parse(String(data)) as {
+      readonly id?: string;
+      readonly type?: string;
+      readonly payload?: unknown;
+    };
+  } catch {
+    return { type: "error", payload: "Invalid live message" };
+  }
 }

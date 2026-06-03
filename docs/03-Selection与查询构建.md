@@ -219,13 +219,13 @@ q.viewer.name; // 返回旧值，同时该 active demand 进入下一次 refetch
 
 ## Live 查询
 
-live 不是缓存策略，而是独立的**传输模式**。它通过持续订阅（WebSocket / SSE）替代一次性 fetch：
+live 不是缓存策略，而是独立的**持续订阅形态**。它通过外部提供的订阅函数替代一次性 fetch：
 
 ```ts
 const live = useLiveQuery();
 live.user({ id }).name; // 同一套 accessor API
 ```
 
-一个 QuerySession 内共享一条 live 连接。服务端按 root + args 区分不同 selection，推送 patch 到对应 field signal。组件卸载时对应的 selection 从 session 移除，不影响其他组件的订阅。不需要手动管理连接生命周期。
+GQLens 的核心契约是 `LiveSubscriber`，不是某个具体协议。外部可以用 WebSocket、SSE 或业务已有实时通道实现它；session 只负责 selection 变化时重新订阅、组件卸载时取消订阅，并把收到的 patch 写入对应 field signal。
 
 live 与 fetch 的差异只在传输层：live patch 仍写入同一个 NormalizedCache，reader 仍通过字段 signal 被通知。

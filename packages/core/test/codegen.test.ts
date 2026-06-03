@@ -122,6 +122,47 @@ describe("createAccessorNode", () => {
     expect(query.viewer.posts.ids).toStrictEqual(["10", "11"]);
     expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "posts" }, { field: "ids" }]]);
   });
+
+  test("reuses relation and list accessor objects without caching scalar reads", () => {
+    const cache = createNormalizedCache();
+    const demands: readonly SelectionStep[][] = [];
+    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+
+    expect(Object.is(query.viewer, query.viewer)).toBe(true);
+    expect(Object.is(query.user({ id: "1" }), query.user({ id: "1" }))).toBe(true);
+    expect(Object.is(query.user({ id: "1" }), query.user({ id: "2" }))).toBe(false);
+    expect(Object.is(query.viewer.posts, query.viewer.posts)).toBe(true);
+
+    (demands as SelectionStep[][]).splice(0);
+    expect(query.viewer.name).toBe("Alice");
+    cache.field(cache.entity("User", "1"), "name").sig("Bob");
+    expect(query.viewer.name).toBe("Bob");
+    expect(demands).toStrictEqual([
+      [{ field: "viewer" }, { field: "name" }],
+      [{ field: "viewer" }, { field: "name" }],
+    ]);
+  });
+
+  test("keeps accessor fields non-enumerable to avoid accidental reads", () => {
+    const cache = createNormalizedCache();
+    const demands: readonly SelectionStep[][] = [];
+    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice", posts: [] } });
+    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+
+    expect(Object.keys(query)).toStrictEqual([]);
+    expect(Object.keys(query.viewer)).toStrictEqual([]);
+    expect(Object.keys(query.viewer.posts)).toStrictEqual([]);
+    expect(JSON.stringify(query.viewer)).toBe("{}");
+    expect(demands).toStrictEqual([]);
+
+    expect(query.viewer.name).toBe("Alice");
+    expect(query.viewer.posts.ids).toStrictEqual([]);
+    expect(demands).toStrictEqual([
+      [{ field: "viewer" }, { field: "name" }],
+      [{ field: "viewer" }, { field: "posts" }, { field: "ids" }],
+    ]);
+  });
 });
 
 function ctx(

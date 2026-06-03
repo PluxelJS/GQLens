@@ -54,24 +54,53 @@ export function createAccessorNode<T extends object>(
   refResolver?: () => EntityRef | undefined,
 ): T {
   const target = {};
+  const childCache = new Map<string, unknown>();
 
   for (const field of Object.values(meta.fields)) {
     if (field.hasArgs) {
       Object.defineProperty(target, field.name, {
-        enumerable: true,
-        value: (args?: Record<string, unknown>) =>
-          readField(ctx, schema, field, [...steps, { field: field.name, args }], refResolver),
+        enumerable: false,
+        value: (args?: Record<string, unknown>) => {
+          const nextSteps = [...steps, { field: field.name, args }];
+          if (field.kind === "scalar") {
+            return readField(ctx, schema, field, nextSteps, refResolver);
+          }
+          return readCachedField(ctx, schema, field, nextSteps, refResolver, childCache);
+        },
       });
       continue;
     }
 
     Object.defineProperty(target, field.name, {
-      enumerable: true,
-      get: () => readField(ctx, schema, field, [...steps, { field: field.name }], refResolver),
+      enumerable: false,
+      get: () => {
+        const nextSteps = [...steps, { field: field.name }];
+        if (field.kind === "scalar") {
+          return readField(ctx, schema, field, nextSteps, refResolver);
+        }
+        return readCachedField(ctx, schema, field, nextSteps, refResolver, childCache);
+      },
     });
   }
 
   return target as T;
+}
+
+function readCachedField(
+  ctx: AccessorContext,
+  schema: SchemaMeta,
+  field: FieldMeta,
+  steps: readonly SelectionStep[],
+  refResolver: (() => EntityRef | undefined) | undefined,
+  cache: Map<string, unknown>,
+): unknown {
+  const key = cacheFieldKey(steps);
+  if (cache.has(key)) {
+    return cache.get(key);
+  }
+  const value = readField(ctx, schema, field, steps, refResolver);
+  cache.set(key, value);
+  return value;
 }
 
 function readField(
@@ -119,8 +148,10 @@ function createListAccessor(
   steps: readonly SelectionStep[],
   refResolver: (() => EntityRef | undefined) | undefined,
 ): { readonly ids: readonly string[] } {
-  return {
-    get ids(): readonly string[] {
+  const target = {};
+  Object.defineProperty(target, "ids", {
+    enumerable: false,
+    get(): readonly string[] {
       ctx.demand([...steps, { field: "ids" }]);
       const ref = refResolver?.();
       if (ref) {
@@ -130,7 +161,8 @@ function createListAccessor(
       const entry = ctx.cache.slot<readonly string[]>(slotKey(ctx.root, steps, "ids"));
       return ctx.read(entry.sig) ?? [];
     },
-  };
+  });
+  return target as { readonly ids: readonly string[] };
 }
 
 function cacheFieldKey(steps: readonly SelectionStep[]): string {

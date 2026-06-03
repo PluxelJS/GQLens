@@ -2,7 +2,7 @@ import { describe, expect, test, vi, afterEach } from "vitest";
 import { createElement } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { GQLensProvider, useQuery, useLiveQuery, useMutation } from "@gqlens/react";
-import { createSignal, type Fetcher } from "@gqlens/core";
+import { createSignal, type Fetcher, type LiveSubscriber } from "@gqlens/core";
 
 function wrapper(overrides: Partial<Parameters<typeof GQLensProvider>[0]["config"]> = {}) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
@@ -67,6 +67,39 @@ describe("React adapter", () => {
       expect(result.current.session).toBeDefined();
       expect(result.current.cache).toBeDefined();
     });
+
+    test("accepts an external live subscriber", async () => {
+      const listeners: Array<(data: unknown) => void> = [];
+      const liveSubscriber = vi.fn<LiveSubscriber>((_, onData) => {
+        listeners.push(onData);
+        return () => undefined;
+      });
+      const { result } = renderHook(
+        () => {
+          const state = useLiveQuery({
+            metadata: {
+              roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+              types: { User: { name: { returnsEntity: false } } },
+            },
+          });
+          state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
+          return state;
+        },
+        { wrapper: wrapper({ endpoint: undefined, liveSubscriber }) },
+      );
+
+      await waitFor(() => {
+        expect(liveSubscriber).toHaveBeenCalledTimes(1);
+      });
+
+      act(() => {
+        listeners[0]?.({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+      });
+
+      await waitFor(() => {
+        expect(result.current.cache.field({ type: "User", id: "1" }, "name").sig()).toBe("Alice");
+      });
+    });
   });
 
   describe("reader scope", () => {
@@ -95,6 +128,36 @@ describe("React adapter", () => {
 
       await waitFor(() => {
         expect(result.current).toBe("second");
+      });
+    });
+
+    test("rerenders when session loading changes", async () => {
+      const resolvers: Array<(value: Record<string, unknown>) => void> = [];
+      const fetcher = vi.fn<Fetcher>(
+        () =>
+          new Promise((resolve) => {
+            resolvers.push(resolve);
+          }),
+      );
+      const { result } = renderHook(
+        () => {
+          const state = useQuery({ policy: "network-only" });
+          state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
+          return state.loading;
+        },
+        { wrapper: wrapper({ fetcher }) },
+      );
+
+      await waitFor(() => {
+        expect(result.current).toBe(true);
+      });
+
+      act(() => {
+        resolvers[0]?.({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+      });
+
+      await waitFor(() => {
+        expect(result.current).toBe(false);
       });
     });
 
@@ -175,11 +238,77 @@ describe("React adapter", () => {
         { wrapper: wrapper({ fetcher }) },
       );
 
-      await result.current.rename({ id: "1", name: "Alice" });
+      await result.current.rename({
+        id: "1",
+        name: "Alice",
+        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+      });
 
       expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
         "Alice",
       );
+    });
+
+    test("applies invalidates and refetches active provider sessions after success", async () => {
+      const fetcher = vi
+        .fn<Fetcher>()
+        .mockResolvedValueOnce({
+          user: {
+            __typename: "User",
+            id: "1",
+            name: "Alice",
+          },
+        })
+        .mockResolvedValueOnce({ renameUser: true })
+        .mockResolvedValueOnce({
+          user: {
+            __typename: "User",
+            id: "1",
+            name: "Fresh Alice",
+          },
+        });
+      const { result } = renderHook(
+        () => {
+          const state = useQuery({
+            policy: "cache-and-network",
+            metadata: {
+              roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+              types: { User: { name: { returnsEntity: false } } },
+            },
+          });
+          state.demand("Query", [{ field: "user", args: { id: "1" } }, { field: "name" }]);
+          const rename = useMutation({
+            operationName: "renameUser",
+            query: "mutation renameUser($id: ID!) { renameUser(id: $id) }",
+            variables: (input: { id: string }) => ({ id: input.id }),
+          });
+          return { state, rename };
+        },
+        { wrapper: wrapper({ fetcher }) },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
+          "Alice",
+        );
+      });
+
+      await result.current.rename({
+        id: "1",
+        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+      });
+
+      await waitFor(() => {
+        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
+          "Fresh Alice",
+        );
+      });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(fetcher.mock.calls.map(([op]) => op.operationName)).toStrictEqual([
+        "GQLens",
+        "renameUser",
+        "GQLens",
+      ]);
     });
   });
 });

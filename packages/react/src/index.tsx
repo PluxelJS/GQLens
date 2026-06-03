@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   createFetchTransport,
+  createLiveQuerySession,
   createLiveTransport,
   createNormalizedCache,
   createQuerySession,
@@ -21,6 +22,7 @@ import {
   type AlienSignalReader,
   type Fetcher,
   type InvalidationSpec,
+  type LiveSubscriber,
   type MutationOperation,
   type NormalizedCache,
   type QuerySession,
@@ -31,9 +33,11 @@ import {
 } from "@gqlens/core";
 
 export interface GQLensConfig {
-  readonly endpoint: string;
+  readonly endpoint?: string | undefined;
   readonly cache?: NormalizedCache | undefined;
   readonly fetcher?: Fetcher | undefined;
+  readonly liveSubscriber?: LiveSubscriber | undefined;
+  readonly closeLive?: (() => void) | undefined;
   readonly defaultPolicy?: QuerySessionConfig["policy"] | undefined;
   readonly defaultTTL?: number | undefined;
 }
@@ -54,11 +58,13 @@ interface GQLensRuntime {
   readonly fetcher: Fetcher;
   session(config: QuerySessionConfig): QuerySession;
   liveSession(config: QuerySessionConfig): QuerySession;
+  invalidate(specs: readonly InvalidationSpec[]): void;
 }
 
 const ConfigContext = createContext<GQLensRuntime | null>(null);
 let nextMetadataId = 0;
 const metadataIds = new WeakMap<PlannerMetadata, number>();
+const defaultEndpoint = "/graphql";
 
 export function GQLensProvider(props: {
   readonly config: GQLensConfig;
@@ -66,17 +72,10 @@ export function GQLensProvider(props: {
 }): ReactElement {
   const cache = useMemo(() => props.config.cache ?? createNormalizedCache(), [props.config.cache]);
   const fetcher = useMemo(
-    () => props.config.fetcher ?? createFetchTransport(props.config.endpoint),
+    () => props.config.fetcher ?? createFetchTransport(props.config.endpoint ?? defaultEndpoint),
     [props.config.fetcher, props.config.endpoint],
   );
-  const [subscribe, closeLive] = useMemo(
-    () => createLiveTransport(props.config.endpoint),
-    [props.config.endpoint],
-  );
-  const liveFetcher = useMemo<Fetcher>(
-    () => (op) => new Promise((resolve) => subscribe(op, resolve)),
-    [subscribe],
-  );
+  const [subscribe, closeLive] = useLiveTransportConfig(props.config);
   const runtime = useMemo<GQLensRuntime>(() => {
     const sessions = new Map<string, QuerySession>();
     const liveSessions = new Map<string, QuerySession>();
@@ -91,15 +90,36 @@ export function GQLensProvider(props: {
       },
 
       liveSession(config: QuerySessionConfig): QuerySession {
-        return getOrCreateSession(liveSessions, cache, liveFetcher, config);
+        return getOrCreateLiveSession(liveSessions, cache, subscribe, config);
+      },
+
+      invalidate(specs: readonly InvalidationSpec[]): void {
+        applyInvalidations(cache, specs);
+        for (const session of sessions.values()) {
+          session.refetch();
+        }
+        for (const session of liveSessions.values()) {
+          session.refetch();
+        }
       },
     };
-  }, [cache, fetcher, liveFetcher, props.config.defaultPolicy, props.config.defaultTTL]);
+  }, [cache, fetcher, props.config.defaultPolicy, props.config.defaultTTL, subscribe]);
 
   useEffect(() => closeLive, [closeLive]);
 
   return createElement(ConfigContext.Provider, { value: runtime }, props.children);
 }
+
+function useLiveTransportConfig(config: GQLensConfig): readonly [LiveSubscriber, () => void] {
+  return useMemo(() => {
+    if (config.liveSubscriber) {
+      return [config.liveSubscriber, config.closeLive ?? noop] as const;
+    }
+    return createLiveTransport(config.endpoint ?? defaultEndpoint);
+  }, [config.closeLive, config.endpoint, config.liveSubscriber]);
+}
+
+const noop = (): void => undefined;
 
 export function useGQLensSession(config?: Partial<QuerySessionConfig>): SessionState {
   const global = useConfig();
@@ -115,10 +135,10 @@ export function useGQLensSession(config?: Partial<QuerySessionConfig>): SessionS
 
   return {
     get loading() {
-      return session.loading();
+      return reader.read(session.loading);
     },
     get error() {
-      return session.error();
+      return reader.read(session.error);
     },
     session,
     cache: global.cache,
@@ -141,10 +161,10 @@ export function useLiveGQLensSession(config?: Partial<QuerySessionConfig>): Sess
 
   return {
     get loading() {
-      return session.loading();
+      return reader.read(session.loading);
     },
     get error() {
-      return session.error();
+      return reader.read(session.error);
     },
     session,
     cache: global.cache,
@@ -168,8 +188,8 @@ export function useMutation<TInput extends Record<string, unknown>, TData>(
 
   return useCallback(
     async (input: TInput & MutationOptions): Promise<TData> =>
-      runMutation(global.cache, mutationFn, input),
-    [global.cache, mutationFn],
+      runMutation(global.cache, mutationFn, input, global.invalidate),
+    [global.cache, global.invalidate, mutationFn],
   );
 }
 
@@ -194,6 +214,23 @@ function getOrCreateSession(
   }
 
   const session = createQuerySession(cache, fetcher, config);
+  sessions.set(key, session);
+  return session;
+}
+
+function getOrCreateLiveSession(
+  sessions: Map<string, QuerySession>,
+  cache: NormalizedCache,
+  subscribe: Parameters<typeof createLiveQuerySession>[1],
+  config: QuerySessionConfig,
+): QuerySession {
+  const key = sessionKey(config);
+  const existing = sessions.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const session = createLiveQuerySession(cache, subscribe, config);
   sessions.set(key, session);
   return session;
 }
@@ -300,6 +337,7 @@ async function runMutation<TInput extends Record<string, unknown>, TData>(
   cache: NormalizedCache,
   mutationFn: (input: TInput) => Promise<TData>,
   input: TInput & MutationOptions,
+  invalidate: (specs: readonly InvalidationSpec[]) => void,
 ): Promise<TData> {
   const snapshots = input.optimistic
     ? snapshotFields(cache, input.invalidates ?? [])
@@ -308,11 +346,20 @@ async function runMutation<TInput extends Record<string, unknown>, TData>(
 
   try {
     const data = await mutationFn(input);
+    if (input.invalidates && input.invalidates.length > 0) {
+      invalidate(input.invalidates);
+    }
     normalizeMutationResult(cache, data);
     return data;
   } catch (error) {
     rollback(cache, input.invalidates ?? [], snapshots);
     throw error;
+  }
+}
+
+function applyInvalidations(cache: NormalizedCache, specs: readonly InvalidationSpec[]): void {
+  for (const spec of specs) {
+    cache.invalidate(cache.entity(spec.type, spec.id), spec.keys);
   }
 }
 

@@ -1,6 +1,12 @@
 import { describe, expect, test, vi, afterEach } from "vitest";
+import { createRoot } from "solid-js";
 import { createQuery, createLiveQuery, createMutation } from "@gqlens/solid";
-import { createNormalizedCache, createSignal, type Fetcher } from "@gqlens/core";
+import {
+  createNormalizedCache,
+  createSignal,
+  type Fetcher,
+  type LiveSubscriber,
+} from "@gqlens/core";
 
 describe("Solid adapter", () => {
   afterEach(() => {
@@ -54,6 +60,32 @@ describe("Solid adapter", () => {
         }),
       );
     });
+
+    test("reads current loading state from session signals", async () => {
+      const resolvers: Array<(value: Record<string, unknown>) => void> = [];
+      const fetcher = vi.fn<Fetcher>(
+        () =>
+          new Promise((resolve) => {
+            resolvers.push(resolve);
+          }),
+      );
+      const scope = createRoot((dispose) => {
+        const state = createQuery({ fetcher, policy: "network-only" });
+        state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
+        state.session.schedule();
+        return { dispose, state };
+      });
+
+      await nextMacrotask();
+      expect(resolvers).toHaveLength(1);
+      expect(scope.state.loading()).toBe(true);
+
+      resolvers[0]!({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+      await nextMacrotask();
+
+      expect(scope.state.loading()).toBe(false);
+      scope.dispose();
+    });
   });
 
   describe("createLiveQuery", () => {
@@ -62,6 +94,31 @@ describe("Solid adapter", () => {
       expect(state.loading()).toBe(false);
       expect(state.error()).toBeNull();
       expect(state.session).toBeDefined();
+    });
+
+    test("accepts an external live subscriber", async () => {
+      const cache = createNormalizedCache();
+      const listeners: Array<(data: unknown) => void> = [];
+      const liveSubscriber = vi.fn<LiveSubscriber>((_, onData) => {
+        listeners.push(onData);
+        return () => undefined;
+      });
+      const state = createLiveQuery({
+        cache,
+        liveSubscriber,
+        metadata: {
+          roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+          types: { User: { name: { returnsEntity: false } } },
+        },
+      });
+
+      state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
+      state.session.schedule();
+      await nextMacrotask();
+      expect(liveSubscriber).toHaveBeenCalledTimes(1);
+
+      listeners[0]?.({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+      expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Alice");
     });
   });
 
@@ -143,6 +200,25 @@ describe("Solid adapter", () => {
       expect(optimisticRan).toBe(true);
     });
 
+    test("applies invalidates after successful mutation", async () => {
+      const cache = createNormalizedCache();
+      const mutate = createMutation(
+        async (input: { name: string }) => ({
+          renameUser: { __typename: "User", id: "1", name: input.name },
+        }),
+        cache,
+      );
+
+      await mutate({
+        name: "Alice",
+        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+      });
+
+      const field = cache.field(cache.entity("User", "1"), "name");
+      expect(field.sig()).toBe("Alice");
+      expect(field.expires).toBe(0);
+    });
+
     test("rolls back optimistic writes on error", async () => {
       const cache = createNormalizedCache();
       // Pre-populate cache
@@ -170,3 +246,7 @@ describe("Solid adapter", () => {
     });
   });
 });
+
+function nextMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}

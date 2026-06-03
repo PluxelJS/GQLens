@@ -1,12 +1,15 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   createNormalizedCache,
   createSelectionCollector,
   plan,
+  createLiveQuerySession,
   createQuerySession,
   createFetchTransport,
   type SelectionPath,
   type GraphQLOperation,
+  type Fetcher,
+  type LiveSubscriber,
 } from "@gqlens/core";
 
 // ─── NormalizedCache ───────────────────────────────────────────────────────
@@ -183,6 +186,17 @@ describe("NormalizedCache", () => {
     cache.normalize({ post: { __typename: "Post", id: "1", tags } });
 
     expect(cache.field(cache.entity("Post", "1"), "tags").sig()).toStrictEqual(tags);
+  });
+
+  test("created but unset entries are not treated as cached", () => {
+    const cache = createNormalizedCache();
+    const ref = cache.entity("User", "1");
+
+    cache.field(ref, "name");
+    cache.slot("Query.viewer");
+
+    expect(cache.isCached(ref, "name")).toBe(false);
+    expect(cache.isSlotCached("Query.viewer")).toBe(false);
   });
 });
 
@@ -507,6 +521,224 @@ describe("QuerySession", () => {
 
     expect(cache.slot('Query.user({"id":"1"})').sig()).toStrictEqual({ type: "User", id: "1" });
     expect(cache.slot('Query.user({"id":"2"})').sig()).toStrictEqual({ type: "User", id: "2" });
+  });
+
+  test("cache-first skips fetch when a selected entity field is fresh", async () => {
+    const cache = createNormalizedCache();
+    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    const fetcher = vi.fn<Fetcher>(async () => ({}));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+    });
+    session.schedule();
+    await nextMicrotask();
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  test("cache-first refetches when a selected entity field is stale", async () => {
+    const cache = createNormalizedCache();
+    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    cache.invalidate(cache.entity("User", "1"), ["name"]);
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      user: { __typename: "User", id: "1", name: "Fresh Alice" },
+    }));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+    });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Fresh Alice");
+  });
+
+  test("cache-and-network does not repeat the same fresh completed operation", async () => {
+    const cache = createNormalizedCache();
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      viewer: { __typename: "User", id: "1", name: "Alice" },
+    }));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-and-network",
+      metadata: {
+        roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+    const selection = [{ field: "viewer" }, { field: "name" }];
+
+    session.replace(reader, [{ root: "Query", steps: selection }]);
+    session.schedule();
+    await nextMacrotask();
+    session.replace(reader, [{ root: "Query", steps: selection }]);
+    session.schedule();
+    await nextMacrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  test("refetch forces a fresh completed operation to run again", async () => {
+    const cache = createNormalizedCache();
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      viewer: { __typename: "User", id: "1", name: "Alice" },
+    }));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.replace(reader, [{ root: "Query", steps: [{ field: "viewer" }, { field: "name" }] }]);
+    session.schedule();
+    await nextMacrotask();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    session.refetch();
+    await nextMacrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  test("invalidate marks fields stale and schedules active demand", async () => {
+    const cache = createNormalizedCache();
+    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      user: { __typename: "User", id: "1", name: "Fresh Alice" },
+    }));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.replace(reader, [
+      { root: "Query", steps: [{ field: "user", args: { id: "1" } }, { field: "name" }] },
+    ]);
+    session.schedule();
+    await nextMicrotask();
+    expect(fetcher).not.toHaveBeenCalled();
+
+    session.invalidate([{ type: "User", id: "1", keys: ["name"] }]);
+    await nextMacrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Fresh Alice");
+  });
+
+  test("live session streams repeated patches into cache", async () => {
+    const cache = createNormalizedCache();
+    const listeners: Array<(data: unknown) => void> = [];
+    const subscribe = vi.fn<LiveSubscriber>((_, onData) => {
+      listeners.push(onData);
+      return () => undefined;
+    });
+    const session = createLiveQuerySession(cache, subscribe, {
+      metadata: {
+        roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.replace(reader, [{ root: "Query", steps: [{ field: "viewer" }, { field: "name" }] }]);
+    session.schedule();
+    await nextMicrotask();
+
+    listeners[0]?.({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+
+    listeners[0]?.({ data: { viewer: { __typename: "User", id: "1", name: "Bob" } } });
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Bob");
+    expect(session.loading()).toBe(false);
+  });
+
+  test("live session unsubscribes when active selection becomes empty", async () => {
+    const cache = createNormalizedCache();
+    const unsubscribe = vi.fn<() => void>(() => undefined);
+    const subscribe = vi.fn<LiveSubscriber>(() => unsubscribe);
+    const session = createLiveQuerySession(cache, subscribe);
+    const reader = session.mount();
+
+    session.replace(reader, [{ root: "Query", steps: [{ field: "viewer" }, { field: "name" }] }]);
+    session.schedule();
+    await nextMicrotask();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    session.replace(reader, []);
+    session.schedule();
+    await nextMicrotask();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(session.loading()).toBe(false);
+  });
+
+  test("schedule writes args-sensitive relation list ids onto the owner entity", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(
+      cache,
+      async () => ({
+        user: {
+          __typename: "User",
+          id: "1",
+          posts: [
+            { __typename: "Post", id: "10" },
+            { __typename: "Post", id: "11" },
+          ],
+        },
+      }),
+      {
+        metadata: {
+          roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+          types: {
+            User: { posts: { returnsEntity: true, returnsList: true, graphQLType: "Post" } },
+          },
+        },
+      },
+    );
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [
+        { field: "user", args: { id: "1" } },
+        { field: "posts", args: { first: 5 } },
+        { field: "ids" },
+      ],
+    });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.field(cache.entity("User", "1"), 'posts({"first":5})_ids').sig()).toStrictEqual([
+      "10",
+      "11",
+    ]);
   });
 
   test("loading stays true until every in-flight operation settles", async () => {

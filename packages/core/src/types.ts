@@ -44,10 +44,6 @@ export interface QuerySessionConfig {
   readonly metadata?: PlannerMetadata | undefined;
 }
 
-export type TransportMode =
-  | { readonly type: "fetch" }
-  | { readonly type: "live"; readonly endpoint: string };
-
 export type GraphQLResult = Record<string, unknown>;
 
 export interface GraphQLOperation {

@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "@graphql-codegen/core": "^4.0.2",
-    "@graphql-codegen/typescript": "^4.1.6"
+    "@graphql-codegen/typescript": "^4.1.6",
+    "@graphql-codegen/visitor-plugin-common": "^5.8.0"
   },
   "devDependencies": {
     "fs-fixture": "^2.14.0",

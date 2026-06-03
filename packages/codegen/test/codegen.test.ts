@@ -89,6 +89,7 @@ describe("@gqlens/codegen", () => {
     expect(accessor).toContain(
       'import { useGQLensSession, useLiveGQLensSession } from "@gqlens/react"',
     );
+    expect(accessor).toContain('import type * as Types from "./types"');
     expect(accessor).toContain('import { createAccessorNode } from "@gqlens/core/codegen"');
     expect(accessor).toContain("metadata: schemaMeta.planner");
     expect(accessor).toContain("planner:");
@@ -96,16 +97,44 @@ describe("@gqlens/codegen", () => {
     expect(accessor).toContain('demand: (steps) => state.demand("Query", steps)');
     expect(accessor).toContain("read: state.read");
     expect(accessor).toContain("export function useQuery");
-    expect(accessor).toContain("readonly tags: (string)[]");
+    expect(accessor).toContain('readonly tags: Types.Post["tags"]');
+    expect(accessor).toContain("args?: Types.QueryPostsArgs");
     expect(accessor).toContain("export function useLiveQuery");
     expect(accessor).toContain("export const api = {");
     expect(accessor).toContain("user: {");
     expect(accessor).toContain("rename:");
+    expect(accessor).toContain("variables: (input: Types.MutationRenameUserArgs)");
+    expect(accessor).toContain("comment: {");
+    expect(accessor).toContain("add:");
+    expect(accessor).toContain("variables: (input: Types.MutationAddCommentArgs)");
     expect(accessor).toContain("satisfies MutationOperation");
     expect(accessor).toContain("mutation renameUser($id: ID!, $name: String!)");
     expect(accessor).not.toContain("Promise.resolve");
     expect(accessor).toContain("comment: {");
     expect(accessor).toContain("add:");
+  });
+
+  test("uses the same args type names as GraphQL Code Generator", async () => {
+    const result = await generate({
+      schema: /* graphql */ `
+        type User {
+          id: ID!
+        }
+
+        type Query {
+          user_by_id(user_id: ID!): User
+          useURL(URL: String!): User
+        }
+      `,
+      output: "/gqlens",
+    });
+
+    const types = result.files["types.ts"]!;
+    const accessor = result.files["accessor.ts"]!;
+    expect(types).toContain("export type QueryUser_By_IdArgs");
+    expect(types).toContain("export type QueryUseUrlArgs");
+    expect(accessor).toContain("user_by_id: (args: Types.QueryUser_By_IdArgs)");
+    expect(accessor).toContain("useURL: (args: Types.QueryUseUrlArgs)");
   });
 
   test("supports solid framework option", async () => {
@@ -116,6 +145,29 @@ describe("@gqlens/codegen", () => {
     );
     expect(accessor).toContain("export function createQuery");
     expect(accessor).toContain("export function createLiveQuery");
+  });
+
+  test("supports custom adapter descriptors", async () => {
+    const result = await generate({
+      schema: testSchema,
+      output: "/gqlens",
+      adapter: {
+        module: "@gqlens/vue",
+        querySessionImport: "useGQLensVueSession",
+        liveSessionImport: "useLiveGQLensVueSession",
+        querySessionHook: "useGQLensVueSession",
+        liveSessionHook: "useLiveGQLensVueSession",
+        queryExport: "useQuery",
+        liveQueryExport: "useLiveQuery",
+      },
+    });
+
+    const accessor = result.files["accessor.ts"]!;
+    expect(accessor).toContain(
+      'import { useGQLensVueSession, useLiveGQLensVueSession } from "@gqlens/vue"',
+    );
+    expect(accessor).toContain("const state = useGQLensVueSession");
+    expect(accessor).toContain("const state = useLiveGQLensVueSession");
   });
 
   test("writes output to fs-fixture directory", async () => {

@@ -1,6 +1,7 @@
 import { createSignal as createSolidSignal, getOwner, onCleanup } from "solid-js";
 import {
   createFetchTransport,
+  createLiveQuerySession,
   createLiveTransport,
   createNormalizedCache,
   createQuerySession,
@@ -8,6 +9,7 @@ import {
   type AlienSignalReader,
   type Fetcher,
   type InvalidationSpec,
+  type LiveSubscriber,
   type MutationOperation,
   type NormalizedCache,
   type QuerySession,
@@ -19,6 +21,8 @@ export interface QueryConfig extends Partial<QuerySessionConfig> {
   readonly endpoint?: string | undefined;
   readonly cache?: NormalizedCache | undefined;
   readonly fetcher?: Fetcher | undefined;
+  readonly liveSubscriber?: LiveSubscriber | undefined;
+  readonly closeLive?: (() => void) | undefined;
 }
 
 export interface SolidSessionState {
@@ -56,8 +60,8 @@ export function createQuery(config: QueryConfig = {}): SolidSessionState {
   queueMicrotask(() => session.schedule());
 
   return {
-    loading: () => session.loading(),
-    error: () => session.error(),
+    loading: () => reader.read(session.loading),
+    error: () => reader.read(session.error),
     session,
     cache,
     demand: reader.demand,
@@ -67,16 +71,12 @@ export function createQuery(config: QueryConfig = {}): SolidSessionState {
 
 export function createLiveQuery(config: QueryConfig = {}): SolidSessionState {
   const cache = config.cache ?? createNormalizedCache();
-  const [subscribe, close] = createLiveTransport(config.endpoint ?? defaultEndpoint);
-  const session = createQuerySession(
-    cache,
-    (op) => new Promise((resolve) => subscribe(op, resolve)),
-    {
-      policy: config.policy ?? "cache-and-network",
-      ttl: config.ttl ?? 0,
-      metadata: config.metadata,
-    },
-  );
+  const [subscribe, close] = resolveLiveTransport(config);
+  const session = createLiveQuerySession(cache, subscribe, {
+    policy: config.policy ?? "cache-and-network",
+    ttl: config.ttl ?? 0,
+    metadata: config.metadata,
+  });
   const reader = createSolidReaderScope(session);
 
   if (getOwner()) {
@@ -89,14 +89,23 @@ export function createLiveQuery(config: QueryConfig = {}): SolidSessionState {
   queueMicrotask(() => session.schedule());
 
   return {
-    loading: () => session.loading(),
-    error: () => session.error(),
+    loading: () => reader.read(session.loading),
+    error: () => reader.read(session.error),
     session,
     cache,
     demand: reader.demand,
     read: reader.read,
   };
 }
+
+function resolveLiveTransport(config: QueryConfig): readonly [LiveSubscriber, () => void] {
+  if (config.liveSubscriber) {
+    return [config.liveSubscriber, config.closeLive ?? noop];
+  }
+  return createLiveTransport(config.endpoint ?? defaultEndpoint);
+}
+
+const noop = (): void => undefined;
 
 export function createMutation<TInput extends Record<string, unknown>, TData>(
   mutation: MutationSource<TInput, TData>,
@@ -112,6 +121,9 @@ export function createMutation<TInput extends Record<string, unknown>, TData>(
 
     try {
       const data = await mutationFn(input);
+      if (input.invalidates && input.invalidates.length > 0) {
+        applyInvalidations(cache, input.invalidates);
+      }
       normalizeMutationResult(cache, data);
       return data;
     } catch (error) {
@@ -119,6 +131,12 @@ export function createMutation<TInput extends Record<string, unknown>, TData>(
       throw error;
     }
   };
+}
+
+function applyInvalidations(cache: NormalizedCache, specs: readonly InvalidationSpec[]): void {
+  for (const spec of specs) {
+    cache.invalidate(cache.entity(spec.type, spec.id), spec.keys);
+  }
 }
 
 function normalizeMutationResult(cache: NormalizedCache, data: unknown): void {
@@ -164,8 +182,10 @@ interface SolidReaderScope {
 
 function createSolidReaderScope(session: QuerySession): SolidReaderScope {
   const reader = session.mount();
-  const [version, setVersion] = createSolidSignal(0);
-  const watched = new Map<AlienSignalReader, () => void>();
+  const watched = new Map<
+    AlienSignalReader,
+    { readonly track: () => number; readonly stop: () => void }
+  >();
 
   return {
     demand(root: string, steps: readonly SelectionStep[]): void {
@@ -173,19 +193,22 @@ function createSolidReaderScope(session: QuerySession): SolidReaderScope {
     },
 
     read<T>(sig: AlienSignalReader<T>): T {
-      version();
-      if (!watched.has(sig)) {
-        watched.set(
-          sig,
-          watchSignal(sig, () => setVersion((value) => value + 1)),
-        );
+      let watchedSignal = watched.get(sig);
+      if (!watchedSignal) {
+        const [track, bump] = createSolidSignal(0);
+        watchedSignal = {
+          track,
+          stop: watchSignal(sig, () => bump((value) => value + 1)),
+        };
+        watched.set(sig, watchedSignal);
       }
+      watchedSignal.track();
       return sig();
     },
 
     dispose(): void {
-      for (const stop of watched.values()) {
-        stop();
+      for (const item of watched.values()) {
+        item.stop();
       }
       watched.clear();
       session.unmount(reader);
