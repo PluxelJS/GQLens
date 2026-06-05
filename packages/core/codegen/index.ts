@@ -1,4 +1,4 @@
-import { slotKey, stepKey } from "../src/keys";
+import { relationSlotKey, slotKey, stepKey } from "../src/keys";
 import type {
   AlienSignalReader,
   EntityRef,
@@ -129,14 +129,29 @@ function readField(
   }
 
   return createAccessorNode(ctx, schema, childMeta, steps, () => {
-    const id = steps[steps.length - 1]?.args?.["id"];
-    if (!refResolver && field.typeName && id !== undefined) {
-      return ctx.cache.entity(field.typeName, String(id));
+    const step = lastStep(steps);
+    if (!step) {
+      return undefined;
     }
+
+    if (!refResolver) {
+      const key = slotKey(ctx.root, steps);
+      const slot = ctx.cache.slot<EntityRef | null | undefined>(key);
+      const resolved = ctx.read<EntityRef | null | undefined>(slot.sig);
+      if (resolved !== undefined) {
+        return resolved ?? undefined;
+      }
+
+      const id = step.args?.["id"];
+      if (field.typeName && id !== undefined) {
+        return ctx.cache.entity(field.typeName, String(id));
+      }
+    }
+
     const ref = refResolver?.();
     if (ref) {
-      const relation = ctx.cache.field<EntityRef | undefined>(ref, `${cacheFieldKey(steps)}_ref`);
-      return ctx.read<EntityRef | undefined>(relation.sig);
+      const relation = ctx.cache.slot<EntityRef | null | undefined>(relationSlotKey(ref, step));
+      return ctx.read<EntityRef | null | undefined>(relation.sig) ?? undefined;
     }
     const slot = ctx.cache.slot<EntityRef | undefined>(slotKey(ctx.root, steps));
     return ctx.read<EntityRef | undefined>(slot.sig);
@@ -147,27 +162,37 @@ function createListAccessor(
   ctx: AccessorContext,
   steps: readonly SelectionStep[],
   refResolver: (() => EntityRef | undefined) | undefined,
-): { readonly ids: readonly string[] } {
+): { readonly ids: readonly string[] | undefined } {
   const target = {};
   Object.defineProperty(target, "ids", {
     enumerable: false,
-    get(): readonly string[] {
+    get(): readonly string[] | undefined {
       ctx.demand([...steps, { field: "ids" }]);
       const ref = refResolver?.();
       if (ref) {
-        const field = ctx.cache.field<readonly string[]>(ref, `${cacheFieldKey(steps)}_ids`);
-        return ctx.read(field.sig) ?? [];
+        const step = lastStep(steps);
+        if (!step) {
+          return undefined;
+        }
+        const slot = ctx.cache.slot<readonly string[] | undefined>(
+          relationSlotKey(ref, step, "ids"),
+        );
+        return ctx.read(slot.sig as AlienSignalReader<readonly string[] | undefined>);
       }
-      const entry = ctx.cache.slot<readonly string[]>(slotKey(ctx.root, steps, "ids"));
-      return ctx.read(entry.sig) ?? [];
+      const entry = ctx.cache.slot<readonly string[] | undefined>(slotKey(ctx.root, steps, "ids"));
+      return ctx.read(entry.sig as AlienSignalReader<readonly string[] | undefined>);
     },
   });
-  return target as { readonly ids: readonly string[] };
+  return target as { readonly ids: readonly string[] | undefined };
 }
 
 function cacheFieldKey(steps: readonly SelectionStep[]): string {
-  const step = steps[steps.length - 1];
+  const step = lastStep(steps);
   return step ? stepKey(step) : "";
+}
+
+function lastStep(steps: readonly SelectionStep[]): SelectionStep | undefined {
+  return steps[steps.length - 1];
 }
 
 export type { EntityRef, SelectionStep };

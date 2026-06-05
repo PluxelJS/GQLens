@@ -20,7 +20,7 @@ export type {
 } from "./types";
 
 export { createSignal, watchSignal } from "./signal";
-export { canonicalJSON, selectionKey, slotKey, stepKey } from "./keys";
+export { canonicalJSON, relationSlotKey, selectionKey, slotKey, stepKey } from "./keys";
 export { createNormalizedCache } from "./cache";
 export type { ReaderHandle, SelectionCollector } from "./collector";
 export { createSelectionCollector } from "./collector";

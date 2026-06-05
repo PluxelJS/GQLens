@@ -74,12 +74,12 @@ function fieldSignature(owner: GraphQLObjectType, field: GraphQLField<unknown, u
 function nodeReturnType(owner: GraphQLObjectType, field: GraphQLField<unknown, unknown>): string {
   const unwrapped = unwrapOutput(field.type);
   if (isListTypeLike(field.type) && unwrapped && isObjectType(unwrapped)) {
-    return "{ readonly ids: readonly string[] }";
+    return "{ readonly ids: readonly string[] | undefined }";
   }
   if (unwrapped && isObjectType(unwrapped)) {
     return nodeTypeName(unwrapped.name);
   }
-  return `Types.${generatedTypeName(owner.name)}[${JSON.stringify(field.name)}]`;
+  return `Types.${generatedTypeName(owner.name)}[${JSON.stringify(field.name)}] | undefined`;
 }
 
 function generateHook(type: GraphQLObjectType, exportName: string, sessionHook: string): string {

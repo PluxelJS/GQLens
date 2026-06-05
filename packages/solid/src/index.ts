@@ -190,6 +190,7 @@ function createSolidReaderScope(session: QuerySession): SolidReaderScope {
   return {
     demand(root: string, steps: readonly SelectionStep[]): void {
       session.select(reader, { root, steps });
+      session.schedule();
     },
 
     read<T>(sig: AlienSignalReader<T>): T {

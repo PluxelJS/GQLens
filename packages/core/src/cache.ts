@@ -1,3 +1,4 @@
+import { relationSlotKey } from "./keys";
 import { createSignal } from "./signal";
 import type { EntityRef, FieldSignal, GraphQLResult, NormalizedCache } from "./types";
 
@@ -105,16 +106,20 @@ function normalizeValue(
 
   if (value === null) {
     writeEntry(slots, slotKey, null, expires);
+    clearSlotIds(slots, slotKey);
     return null;
   }
 
   if (Array.isArray(value)) {
-    const refs = value.flatMap((item) => {
-      if (!isEntityObject(item)) {
-        return [];
-      }
-      return [normalizeEntity(item, fields, slots, expires)];
-    });
+    if (!value.some(isEntityObject)) {
+      writeEntry(slots, slotKey, value, expires);
+      clearSlotIds(slots, slotKey);
+      return undefined;
+    }
+
+    const refs = value.flatMap((item) =>
+      isEntityObject(item) ? [normalizeEntity(item, fields, slots, expires)] : [],
+    );
     writeEntry(
       slots,
       `${slotKey}.ids`,
@@ -128,11 +133,21 @@ function normalizeValue(
   if (isEntityObject(value)) {
     const ref = normalizeEntity(value, fields, slots, expires);
     writeEntry(slots, slotKey, ref, expires);
+    clearSlotIds(slots, slotKey);
     return ref;
   }
 
   writeEntry(slots, slotKey, value, expires);
+  clearSlotIds(slots, slotKey);
   return undefined;
+}
+
+function clearSlotIds(slots: Map<string, FieldEntry>, slotKey: string): void {
+  const ids = slots.get(`${slotKey}.ids`);
+  if (ids) {
+    ids.sig(undefined);
+    ids.expires = 0;
+  }
 }
 
 function normalizeEntity(
@@ -147,27 +162,12 @@ function normalizeEntity(
   };
 
   for (const [key, value] of Object.entries(entity)) {
-    if (key === "__typename") {
-      continue;
-    }
-
     if (isFieldValue(value)) {
       writeEntry(fields, entityFieldKey(ref, key), value, expires);
       continue;
     }
 
-    const nestedSlot = `${ref.type}:${ref.id}.${key}`;
-    const normalized = normalizeValue(value, fields, slots, expires, nestedSlot);
-    if (Array.isArray(normalized)) {
-      writeEntry(
-        fields,
-        entityFieldKey(ref, `${key}_ids`),
-        normalized.map((nestedRef) => nestedRef.id),
-        expires,
-      );
-    } else if (normalized && "type" in normalized) {
-      writeEntry(fields, entityFieldKey(ref, `${key}_ref`), normalized, expires);
-    }
+    normalizeValue(value, fields, slots, expires, relationSlotKey(ref, { field: key }));
   }
 
   return ref;

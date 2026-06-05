@@ -1,4 +1,4 @@
-import type { SelectionPath, SelectionStep } from "./types";
+import type { EntityRef, SelectionPath, SelectionStep } from "./types";
 
 export function selectionKey(path: SelectionPath): string {
   return `${path.root}.${stepsKey(path.steps)}`;
@@ -6,6 +6,11 @@ export function selectionKey(path: SelectionPath): string {
 
 export function slotKey(root: string, steps: readonly SelectionStep[], suffix?: string): string {
   const key = `${root}.${stepsKey(steps)}`;
+  return suffix ? `${key}.${suffix}` : key;
+}
+
+export function relationSlotKey(ref: EntityRef, step: SelectionStep, suffix?: string): string {
+  const key = `${ref.type}:${ref.id}.${stepKey(step)}`;
   return suffix ? `${key}.${suffix}` : key;
 }
 

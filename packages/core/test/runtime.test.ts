@@ -55,6 +55,7 @@ describe("NormalizedCache", () => {
     const ref = cache.entity("User", "1");
     expect(cache.field<string>(ref, "name").sig()).toBe("Alice");
     expect(cache.field<string>(ref, "avatar").sig()).toBe("/avatar.png");
+    expect(cache.field<string>(ref, "__typename").sig()).toBe("User");
   });
 
   test("normalize writes nested entity fields", () => {
@@ -106,6 +107,24 @@ describe("NormalizedCache", () => {
 
     expect(cache.slot("Query.viewer").sig()).toStrictEqual({ type: "User", id: "1" });
     expect(cache.slot("Query.todos.ids").sig()).toStrictEqual(["1", "2"]);
+  });
+
+  test("normalize clears stale list ids when a slot becomes null", () => {
+    const cache = createNormalizedCache();
+
+    cache.normalize({
+      todos: [
+        { __typename: "Todo", id: "1", title: "Buy milk" },
+        { __typename: "Todo", id: "2", title: "Walk dog" },
+      ],
+    });
+    expect(cache.slot("Query.todos.ids").sig()).toStrictEqual(["1", "2"]);
+
+    cache.normalize({ todos: null });
+
+    expect(cache.slot("Query.todos").sig()).toBeNull();
+    expect(cache.slot("Query.todos.ids").sig()).toBeUndefined();
+    expect(cache.isSlotCached("Query.todos.ids")).toBe(false);
   });
 
   test("TTL: normalize with ttl sets expiration", () => {
@@ -186,6 +205,16 @@ describe("NormalizedCache", () => {
     cache.normalize({ post: { __typename: "Post", id: "1", tags } });
 
     expect(cache.field(cache.entity("Post", "1"), "tags").sig()).toStrictEqual(tags);
+  });
+
+  test("normalize keeps root scalar arrays as one slot value", () => {
+    const cache = createNormalizedCache();
+    const tags = ["typescript", "graphql"];
+
+    cache.normalize({ tags });
+
+    expect(cache.slot("Query.tags").sig()).toStrictEqual(tags);
+    expect(cache.isSlotCached("Query.tags.ids")).toBe(false);
   });
 
   test("created but unset entries are not treated as cached", () => {
@@ -523,6 +552,71 @@ describe("QuerySession", () => {
     expect(cache.slot('Query.user({"id":"2"})').sig()).toStrictEqual({ type: "User", id: "2" });
   });
 
+  test("schedule accepts fetchers that return GraphQL response envelopes", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(cache, async () => ({
+      data: { viewer: { __typename: "User", id: "1", name: "Alice" } },
+    }));
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [{ field: "viewer" }, { field: "name" }],
+    });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+    expect(cache.slot("Query.viewer").sig()).toStrictEqual({ type: "User", id: "1" });
+  });
+
+  test("schedule keeps selected scalar arrays as slot values without ids", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(cache, async () => ({ tags: ["typescript", "graphql"] }));
+    const reader = session.mount();
+
+    session.select(reader, { root: "Query", steps: [{ field: "tags" }] });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.slot("Query.tags").sig()).toStrictEqual(["typescript", "graphql"]);
+    expect(cache.isSlotCached("Query.tags.ids")).toBe(false);
+  });
+
+  test("schedule writes empty list identities when ids are selected", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(cache, async () => ({ todos: [] }));
+    const reader = session.mount();
+
+    session.select(reader, { root: "Query", steps: [{ field: "todos" }, { field: "ids" }] });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.slot("Query.todos.ids").sig()).toStrictEqual([]);
+  });
+
+  test("schedule clears stale list ids when selected list becomes null", async () => {
+    const cache = createNormalizedCache();
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce({ todos: [{ __typename: "Todo", id: "1" }] })
+      .mockResolvedValueOnce({ todos: null });
+    const session = createQuerySession(cache, fetcher);
+    const reader = session.mount();
+    const selection = { root: "Query", steps: [{ field: "todos" }, { field: "ids" }] };
+
+    session.replace(reader, [selection]);
+    session.schedule();
+    await nextMacrotask();
+    expect(cache.slot("Query.todos.ids").sig()).toStrictEqual(["1"]);
+
+    session.refetch();
+    await nextMacrotask();
+
+    expect(cache.slot("Query.todos").sig()).toBeNull();
+    expect(cache.slot("Query.todos.ids").sig()).toBeUndefined();
+  });
+
   test("cache-first skips fetch when a selected entity field is fresh", async () => {
     const cache = createNormalizedCache();
     cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
@@ -544,6 +638,58 @@ describe("QuerySession", () => {
     await nextMicrotask();
 
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  test("cache-first treats cached null root slots as fresh", async () => {
+    const cache = createNormalizedCache();
+    cache.slot('Query.user({"id":"1"})').sig(null);
+    const fetcher = vi.fn<Fetcher>(async () => ({}));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+    });
+    session.schedule();
+    await nextMicrotask();
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  test("cache-first refetches stale null root slots", async () => {
+    const cache = createNormalizedCache();
+    const slot = cache.slot('Query.user({"id":"1"})');
+    slot.sig(null);
+    slot.expires = Date.now() - 1;
+    cache.field(cache.entity("User", "1"), "name").sig("stale Alice");
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      user: { __typename: "User", id: "1", name: "Fresh Alice" },
+    }));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    });
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+    });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Fresh Alice");
   });
 
   test("cache-first refetches when a selected entity field is stale", async () => {
@@ -699,7 +845,7 @@ describe("QuerySession", () => {
     expect(session.loading()).toBe(false);
   });
 
-  test("schedule writes args-sensitive relation list ids onto the owner entity", async () => {
+  test("schedule writes args-sensitive relation list ids onto the owner relation slot", async () => {
     const cache = createNormalizedCache();
     const session = createQuerySession(
       cache,
@@ -735,10 +881,7 @@ describe("QuerySession", () => {
     session.schedule();
     await nextMacrotask();
 
-    expect(cache.field(cache.entity("User", "1"), 'posts({"first":5})_ids').sig()).toStrictEqual([
-      "10",
-      "11",
-    ]);
+    expect(cache.slot('User:1.posts({"first":5}).ids').sig()).toStrictEqual(["10", "11"]);
   });
 
   test("loading stays true until every in-flight operation settles", async () => {

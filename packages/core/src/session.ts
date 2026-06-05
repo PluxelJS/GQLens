@@ -1,5 +1,5 @@
 import { createSelectionCollector, type ReaderHandle } from "./collector";
-import { slotKey, stepKey } from "./keys";
+import { relationSlotKey, slotKey, stepKey } from "./keys";
 import { plan } from "./planner";
 import { createSignal } from "./signal";
 import type {
@@ -15,6 +15,16 @@ import type {
   SelectionStep,
 } from "./types";
 import type { Fetcher, LiveSubscriber } from "./transport";
+
+interface OwnerResolution {
+  readonly value: EntityRef | null | undefined;
+  readonly fresh: boolean;
+}
+
+interface SlotSnapshot<T> {
+  readonly value: T | undefined;
+  readonly fresh: boolean;
+}
 
 export interface QuerySession {
   readonly cache: NormalizedCache;
@@ -90,7 +100,7 @@ export function createQuerySession(
 
       fetcher(operation)
         .then((data) => {
-          const result = (data ?? {}) as GraphQLResult;
+          const result = readGraphQLData(data);
           cache.normalize(result, ttl);
           syncSlots(cache, result, operation.selections, ttl);
           completed.add(key);
@@ -328,9 +338,12 @@ function isPathFresh(
     return isListPathFresh(cache, path, metadata);
   }
 
-  const owner = resolveOwnerRef(cache, path, metadata);
-  if (owner) {
-    return cache.isCached(owner, cacheFieldKey(last));
+  const owner = resolveOwner(cache, path, metadata);
+  if (owner.value === null) {
+    return owner.fresh;
+  }
+  if (owner.value) {
+    return owner.fresh && cache.isCached(owner.value, cacheFieldKey(last));
   }
 
   return cache.isSlotCached(slotKey(path.root, path.steps));
@@ -360,7 +373,7 @@ function syncPathSlots(
   let current: unknown = data;
   const originalSteps: PlannedSelectionStep[] = [];
 
-  for (const step of path.steps) {
+  for (const [index, step] of path.steps.entries()) {
     originalSteps.push(step);
     if (step.field === "ids") {
       continue;
@@ -371,7 +384,7 @@ function syncPathSlots(
 
     const parentRef = isEntity(current) ? entityFrom(current) : undefined;
     current = current[step.responseKey ?? step.field];
-    const normalized = toSlotValue(current);
+    const normalized = toSlotValue(current, path.steps[index + 1]?.field === "ids");
     if (normalized === undefined) {
       continue;
     }
@@ -391,24 +404,68 @@ function syncPathSlots(
       const idsSlot = cache.slot<readonly string[]>(slotKey(path.root, steps, "ids"));
       idsSlot.sig(normalized.map((ref) => ref.id));
       idsSlot.expires = expires;
-      if (parentRef) {
-        const field = cache.field<readonly string[]>(parentRef, `${cacheFieldKey(step)}_ids`);
-        field.sig(normalized.map((ref) => ref.id));
-        field.expires = expires;
-      }
+      writeRelationSlot(cache, parentRef, step, normalized, expires);
+      writeRelationSlot(
+        cache,
+        parentRef,
+        step,
+        normalized.map((ref) => ref.id),
+        expires,
+        "ids",
+      );
     } else if (normalized && "type" in normalized && parentRef) {
-      const field = cache.field<EntityRef>(parentRef, `${cacheFieldKey(step)}_ref`);
-      field.sig(normalized);
-      field.expires = expires;
+      clearSlotIds(cache, key);
+      writeRelationSlot(cache, parentRef, step, normalized, expires);
+    } else {
+      clearSlotIds(cache, key);
+      clearRelationSlotIds(cache, parentRef, step);
     }
   }
 }
 
-function toSlotValue(value: unknown): EntityRef | readonly EntityRef[] | null | undefined {
+function writeRelationSlot(
+  cache: NormalizedCache,
+  ref: EntityRef | undefined,
+  step: SelectionStep,
+  value: EntityRef | readonly EntityRef[] | readonly string[],
+  expires: number,
+  suffix?: string,
+): void {
+  if (!ref) {
+    return;
+  }
+  const slot = cache.slot(relationSlotKey(ref, step, suffix));
+  slot.sig(value);
+  slot.expires = expires;
+}
+
+function clearRelationSlotIds(
+  cache: NormalizedCache,
+  ref: EntityRef | undefined,
+  step: SelectionStep,
+): void {
+  if (ref) {
+    clearSlotIds(cache, relationSlotKey(ref, step));
+  }
+}
+
+function clearSlotIds(cache: NormalizedCache, key: string): void {
+  const slot = cache.slot<readonly string[] | undefined>(`${key}.ids`);
+  slot.sig(undefined);
+  slot.expires = 0;
+}
+
+function toSlotValue(
+  value: unknown,
+  expectsListIdentity: boolean,
+): EntityRef | readonly EntityRef[] | null | undefined {
   if (value === null) {
     return null;
   }
   if (Array.isArray(value)) {
+    if (!expectsListIdentity && !value.some(isEntity)) {
+      return undefined;
+    }
     return value.flatMap((item) => (isEntity(item) ? [entityFrom(item)] : []));
   }
   if (isEntity(value)) {
@@ -441,34 +498,50 @@ function isListPathFresh(
 
   const relationSteps = path.steps.slice(0, -1);
   if (relationSteps.length === 1) {
-    return cache.isSlotCached(slotKey(path.root, relationSteps, "ids"));
+    return isListSlotFresh(cache, slotKey(path.root, relationSteps));
   }
 
-  const owner = resolveOwnerRefForSteps(cache, path.root, relationSteps.slice(0, -1), metadata);
-  return owner ? cache.isCached(owner, `${cacheFieldKey(relationStep)}_ids`) : false;
+  const owner = resolveOwnerForSteps(cache, path.root, relationSteps.slice(0, -1), metadata);
+  if (owner.value === null) {
+    return owner.fresh;
+  }
+  return owner.value && owner.fresh
+    ? isListSlotFresh(cache, relationSlotKey(owner.value, relationStep))
+    : false;
 }
 
-function resolveOwnerRef(
+function resolveOwner(
   cache: NormalizedCache,
   path: SelectionPath,
   metadata: PlannerMetadata | undefined,
-): EntityRef | undefined {
-  return resolveOwnerRefForSteps(cache, path.root, path.steps.slice(0, -1), metadata);
+): OwnerResolution {
+  return resolveOwnerForSteps(cache, path.root, path.steps.slice(0, -1), metadata);
 }
 
-function resolveOwnerRefForSteps(
+function resolveOwnerForSteps(
   cache: NormalizedCache,
   root: string,
   steps: readonly SelectionStep[],
   metadata: PlannerMetadata | undefined,
-): EntityRef | undefined {
+): OwnerResolution {
   let ref: EntityRef | undefined;
+  let fresh = true;
   const walked: SelectionStep[] = [];
 
   for (const step of steps) {
     walked.push(step);
 
     if (!ref) {
+      const rootSlot = readSlot<EntityRef | null>(cache, slotKey(root, walked));
+      if (rootSlot.value !== undefined) {
+        if (!rootSlot.value) {
+          return { value: null, fresh: rootSlot.fresh };
+        }
+        ref = rootSlot.value;
+        fresh &&= rootSlot.fresh;
+        continue;
+      }
+
       const typeName = metadata?.roots?.[step.field]?.graphQLType;
       const id = step.args?.["id"];
       if (typeName && id !== undefined) {
@@ -476,29 +549,44 @@ function resolveOwnerRefForSteps(
         continue;
       }
 
-      if (!cache.isSlotCached(slotKey(root, walked))) {
-        return undefined;
-      }
-      const value = cache.slot<EntityRef | null>(slotKey(root, walked)).sig();
-      if (!value) {
-        return undefined;
-      }
-      ref = value;
-      continue;
+      return { value: undefined, fresh: false };
     }
 
-    const key = `${cacheFieldKey(step)}_ref`;
-    if (!cache.isCached(ref, key)) {
-      return undefined;
+    const relationSlot = readSlot<EntityRef | null>(cache, relationSlotKey(ref, step));
+    if (relationSlot.value === undefined) {
+      return { value: undefined, fresh: false };
     }
-    const next = cache.field<EntityRef | undefined>(ref, key).sig();
-    if (!next) {
-      return undefined;
+    if (!relationSlot.value) {
+      return { value: null, fresh: fresh && relationSlot.fresh };
     }
-    ref = next;
+    ref = relationSlot.value;
+    fresh &&= relationSlot.fresh;
   }
 
-  return ref;
+  return ref ? { value: ref, fresh } : { value: undefined, fresh: false };
+}
+
+function isListSlotFresh(cache: NormalizedCache, key: string): boolean {
+  const ids = readSlot<readonly string[]>(cache, `${key}.ids`);
+  if (ids.value !== undefined) {
+    return ids.fresh;
+  }
+
+  const relation = readSlot<readonly EntityRef[] | null>(cache, key);
+  return relation.value === null ? relation.fresh : false;
+}
+
+function readSlot<T>(cache: NormalizedCache, key: string): SlotSnapshot<T> {
+  const entry = cache.slot<T | undefined>(key);
+  const value = entry.sig();
+  return {
+    value,
+    fresh: value !== undefined && isFreshEntry(entry),
+  };
+}
+
+function isFreshEntry(entry: { readonly expires: number }): boolean {
+  return entry.expires === 0 || entry.expires > Date.now();
 }
 
 function cacheFieldKey(step: SelectionStep): string {

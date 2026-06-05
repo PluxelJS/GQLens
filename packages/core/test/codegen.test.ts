@@ -14,8 +14,8 @@ interface QueryNode {
 }
 
 interface UserNode {
-  readonly name: string;
-  readonly posts: { readonly ids: readonly string[] };
+  readonly name: string | undefined;
+  readonly posts: { readonly ids: readonly string[] | undefined };
 }
 
 const schemaMeta: SchemaMeta = {
@@ -103,6 +103,17 @@ describe("createAccessorNode", () => {
     expect(demands).toStrictEqual([[{ field: "user", args: { id: "2" } }, { field: "name" }]]);
   });
 
+  test("prefers cached null root slots over root id entity shortcuts", () => {
+    const cache = createNormalizedCache();
+    const demands: readonly SelectionStep[][] = [];
+    cache.field(cache.entity("User", "2"), "name").sig("stale Bob");
+    cache.slot('Query.user({"id":"2"})').sig(null);
+    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+
+    expect(query.user({ id: "2" }).name).toBeUndefined();
+    expect(demands).toStrictEqual([[{ field: "user", args: { id: "2" } }, { field: "name" }]]);
+  });
+
   test("reads relation list ids from the owning entity field", () => {
     const cache = createNormalizedCache();
     const demands: readonly SelectionStep[][] = [];
@@ -147,7 +158,14 @@ describe("createAccessorNode", () => {
   test("keeps accessor fields non-enumerable to avoid accidental reads", () => {
     const cache = createNormalizedCache();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice", posts: [] } });
+    cache.normalize({
+      viewer: {
+        __typename: "User",
+        id: "1",
+        name: "Alice",
+        posts: [{ __typename: "Post", id: "10" }],
+      },
+    });
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
 
     expect(Object.keys(query)).toStrictEqual([]);
@@ -157,11 +175,21 @@ describe("createAccessorNode", () => {
     expect(demands).toStrictEqual([]);
 
     expect(query.viewer.name).toBe("Alice");
-    expect(query.viewer.posts.ids).toStrictEqual([]);
+    expect(query.viewer.posts.ids).toStrictEqual(["10"]);
     expect(demands).toStrictEqual([
       [{ field: "viewer" }, { field: "name" }],
       [{ field: "viewer" }, { field: "posts" }, { field: "ids" }],
     ]);
+  });
+
+  test("returns undefined for missing list identity", () => {
+    const cache = createNormalizedCache();
+    const demands: readonly SelectionStep[][] = [];
+    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+
+    expect(query.viewer.posts.ids).toBeUndefined();
+    expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "posts" }, { field: "ids" }]]);
   });
 });
 
