@@ -23,4 +23,4 @@
 | [05-写入](./05-写入.md)                                | Mutation、Optimistic Update、Invalidation、冲突处理       |
 | [06-框架适配](./06-框架适配.md)                        | React adapter、Solid adapter、API 对照                    |
 | [07-GQty 对照](./07-GQty对照.md)                       | 设计谱系、共同前提、分歧轴、GQLens 独立判断               |
-| [08-性能模型](./08-性能模型.md)                         | accessor 成本、field signal 粒度、懒创建、GQty 成本对照   |
+| [08-性能模型](./08-性能模型.md)                        | accessor 成本、field signal 粒度、懒创建、GQty 成本对照   |

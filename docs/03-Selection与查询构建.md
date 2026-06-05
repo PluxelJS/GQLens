@@ -81,7 +81,7 @@ render-time discovery 是默认正确路径：组件 render 时读取字段，se
 因此 GQLens 需要保留 prepared selection 作为一等设计路径：
 
 ```ts
-const userCard = selection((q, v) => {
+const userCard = defineSelection((q, v) => {
   q.user({ id: v("id") }).name;
   q.user({ id: v("id") }).avatar;
 });

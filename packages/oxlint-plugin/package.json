@@ -1,0 +1,38 @@
+{
+  "name": "@gqlens/oxlint-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Oxlint rules for GQLens accessor usage.",
+  "license": "Apache-2.0",
+  "files": [
+    "README.md",
+    "src",
+    "dist"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./package.json": "./package.json"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsdown --minify"
+  },
+  "dependencies": {
+    "oxlint": "^1.66.0"
+  },
+  "engines": {
+    "node": ">=24.12"
+  }
+}

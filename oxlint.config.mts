@@ -2,6 +2,7 @@ import { defineConfig } from "oxlint";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
   plugins: ["typescript", "unicorn", "oxc", "import", "promise", "node", "vitest"],
+  jsPlugins: ["./packages/oxlint-plugin/src/index.ts"],
   categories: {
     correctness: "error",
     suspicious: "error",
@@ -37,6 +38,12 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     "promise/no-new-statics": "error",
     "promise/no-return-wrap": "error",
     "promise/param-names": "error",
+
+    "gqlens/no-accessor-escape": "error",
+    "gqlens/no-untracked-read": "error",
+    "gqlens/no-accessor-object-ops": "error",
+    "gqlens/selector-pure": "error",
+    "gqlens/plain-args": "error",
 
     "typescript/consistent-type-exports": "error",
     "typescript/consistent-type-imports": "error",

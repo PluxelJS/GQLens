@@ -4,11 +4,12 @@ Monorepo for GQLens — GraphQL query lens tooling.
 
 ## Packages
 
-| Package         | Description                                   |
-| --------------- | --------------------------------------------- |
-| `@gqlens/core`  | Core library — query parsing and lens engine. |
-| `@gqlens/react` | React bindings — hooks and components.        |
-| `@gqlens/solid` | SolidJS bindings — primitives and signals.    |
+| Package                 | Description                                   |
+| ----------------------- | --------------------------------------------- |
+| `@gqlens/core`          | Core library — query parsing and lens engine. |
+| `@gqlens/react`         | React bindings — hooks and components.        |
+| `@gqlens/solid`         | SolidJS bindings — primitives and signals.    |
+| `@gqlens/oxlint-plugin` | Architectural lint rules for accessor usage.  |
 
 ## Tooling
 

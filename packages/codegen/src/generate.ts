@@ -43,6 +43,7 @@ export function schemaToSDL(schema: SchemaInput): string {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
         `Unable to print GraphQLSchema. Pass SDL string when schema and codegen may resolve different graphql package instances. Cause: ${message}`,
+        { cause: error },
       );
     }
   }
