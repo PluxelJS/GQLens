@@ -27,7 +27,6 @@
     "verbatimModuleSyntax": true,
     "paths": {
       "@gqlens/codegen": ["./packages/codegen/src/index.ts"],
-      "@gqlens/codegen/rolldown": ["./packages/codegen/src/rolldown.ts"],
       "@gqlens/core": ["./packages/core/src/index.ts"],
       "@gqlens/core/codegen": ["./packages/core/codegen/index.ts"],
       "@gqlens/react": ["./packages/react/src/index.tsx"],

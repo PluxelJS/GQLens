@@ -1,135 +1,100 @@
 # Yoga + Vite + GQLens Codegen 示例
 
-这个示例故意放在 `packages/` 外面，展示应用侧应该怎样把服务端开发、schema codegen 和客户端网络连接起来。
+这个示例展示应用侧如何把 Yoga、Vite HMR 和 GQLens codegen 串起来。`@gqlens/codegen` 只负责把 schema 生成文件内容；Vite/Rolldown 插件何时调用、如何写盘、如何 watch，都由应用或外部工具决定。
 
-核心原则：
+## 核心边界
 
-- Vite dev 插件负责 `/graphql` middleware、ModuleRunner import 和 HMR 失效。
-- GraphQL 服务端导出 `createSchema()`，不要在开发态持有不可失效的全局 schema 单例。
-- `@gqlens/codegen/rolldown` 在构建启动时生成 `src/gqlens/*`，保证客户端 import generated accessor 前文件已经存在。
-- `tooling/vite-plugin-gqlens-codegen.ts` 在 dev 下复用同一个 codegen 能力，GraphQL 相关文件变更时重新生成 `src/gqlens/*`。
-- 客户端自己提供 `fetcher`，GQLens 只接收传输函数，不拥有 HTTP/auth/retry/SSE/WS 策略。
+- 用户入口都是真实 TS 文件：`src/graphql/schema.ts`、`src/graphql/yoga.ts`、`src/gqlens/*`。
+- dev 下 Vite ModuleRunner 重新 import `schema.ts`，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
+- 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
+- Yoga dev middleware 只缓存当前 handler 引用，GraphQL 相关文件变化后替换 handler，不重启 Vite server。
+- build 下没有 ModuleRunner，所以 `vite.config.ts` 在 `buildStart` 里直接调用 `generateFiles()`。
+- dev 插件只用 Vite `handleHotUpdate`，不维护额外依赖图。
 
 ## 关键配置
 
-`vite.config.ts` 里有两条 codegen 路径。
+`vite.config.ts` 分成 build codegen 和 dev HMR 两层。
 
-构建态使用 `@gqlens/codegen/rolldown`：
+构建态使用一个应用侧 build 插件，直接调用 codegen 函数：
 
 ```ts
-const graphQLRelatedFiles = [
-  /\/src\/graphql\//,
-  /\/src\/services\//,
-  /\/src\/server-runtime\//,
-] as const;
-
 const gqlensBuildCodegenPlugin = {
-  ...gqlensRolldown({
-    output: "src/gqlens",
-    schema: () => printSchema(createSchema()),
-    framework: "react",
-    watch: graphQLRelatedFiles,
-  }),
+  name: "gqlens-build-codegen",
   apply: "build",
+  async buildStart() {
+    const files = await generateFiles({
+      schema: printSchema(createSchema()),
+      framework: "react",
+    });
+    await writeGeneratedFiles(files, "src/gqlens");
+  },
 };
 ```
 
-开发态使用 Vite 的 ModuleRunner，因为 dev HMR 是 Vite server 层能力，不应该塞进纯 Rolldown 插件：
+开发态使用应用侧 Vite 插件，因为 ModuleRunner、middleware 和 proxy 是 Vite dev server 能力：
 
 ```ts
-gqlensCodegenDevPlugin({
+graphqlCodegenPlugin({
   output: "src/gqlens",
-  entry: "/src/graphql/codegen-entry.ts",
+  schemaEntry: "/src/graphql/schema.ts",
+  handlerEntry: "/src/graphql/yoga.ts",
+  endpoint: "/graphql",
   include: graphQLRelatedFiles,
   framework: "react",
+  middleware: !process.env.GRAPHQL_PROXY_TARGET,
 });
 ```
 
-`src/graphql/codegen-entry.ts` 只做一件事：从服务端 `createSchema()` 打印 SDL。
+dev 插件内部复用公共接口，并在插件层处理写盘；这里的 `writeGeneratedFiles()` 是示例本地 helper，不是 GQLens API：
 
 ```ts
-export function createSchemaSDL(): string {
-  return printSchema(createSchema());
-}
+const files = await generateFiles({
+  schema: sdl,
+  framework: "react",
+});
+
+await writeGeneratedFiles(files, "src/gqlens");
 ```
 
-这样服务端执行和客户端生成物共享同一个 schema 来源，但两个插件互不接管对方职责。
+如果你想写自己的 Rolldown/Vite/Rspack 插件，只需要在合适的 hook 里拿到 SDL，然后调用 `@gqlens/codegen` 的 `generateFiles()`。GQLens 不接管 output path、content-diff 写盘、watch/filter/candidate discovery。
+
+`generateFiles()` 也接受 `GraphQLSchema`，但构建工具里可能出现多份 `graphql` 包实例；最稳的方式是在应用侧用同一份 `graphql` 先 `printSchema()`，再把 SDL 字符串交给 GQLens。
 
 ## HMR 流程
 
 ```txt
-修改 src/graphql/schema.ts
-  -> vite-plugin-gqlens-codegen.handleHotUpdate()
-  -> Vite ModuleRunner import('/src/graphql/codegen-entry.ts')
-  -> createSchemaSDL()
-  -> GQLens codegen 写入 src/gqlens/*
-  -> 客户端 import ../gqlens/accessor 的模块看到新的 generated 文件
+src/graphql/* changed
+  -> Vite invalidates server module graph
+  -> plugin imports /src/graphql/schema.ts with ModuleRunner
+  -> createSchema()
+  -> printSchema()
+  -> compare with last in-memory SDL
+  -> SDL changed: generate src/gqlens/*
+  -> generated files are written only if content changed
+  -> generated content changed: Vite client graph HMR
 
 POST /graphql
-  -> vite-plugin-gql-yoga middleware
-  -> 若 handler 缓存为空，ModuleRunner import('/src/graphql/dev-entry.ts')
-  -> createYogaHandler()
-  -> createSchema()
-  -> Yoga 执行 GraphQL operation
+  -> same Vite dev server middleware
+  -> current Yoga handler
+  -> file change clears handler cache
+  -> next request creates a fresh handler from /src/graphql/yoga.ts
 ```
 
-dev codegen 插件内部会串行化连续的重新生成请求，避免多文件 HMR 时并发写同一组 generated files。
-
-## 客户端网络
-
-客户端没有使用 GQLens 默认 endpoint，而是把应用自己的 fetcher 注入进去：
-
-```tsx
-<GQLensProvider config={{ fetcher: graphqlFetcher }}>
-  <ViewerName />
-</GQLensProvider>
-```
-
-`src/client/graphql-fetcher.ts` 是普通应用代码。你可以在这里加入：
-
-- auth header
-- retry
-- batching
-- persisted query
-- edge runtime fetch
-- SSE / WebSocket / 自定义 RPC 的桥接
-
-GQLens 只消费 `Fetcher`，负责 selection、cache、generated accessor 和字段级读取。
+Resolver/context-only changes still refresh the Yoga handler, but SDL stays identical, so GQLens codegen and client HMR do not run.
 
 ## Vite Proxy
 
-默认运行时，示例使用 `vite-plugin-gql-yoga` 在同一个 Vite dev server 里挂载 `/graphql`。
-
-如果你已经有独立 GraphQL 后端，可以用 Vite proxy 接管 `/graphql`：
+默认 dev 模式会在同一个 Vite server 上挂载 `/graphql`。如果已经有独立后端：
 
 ```sh
 GRAPHQL_PROXY_TARGET=http://localhost:4000 npm run dev
 ```
 
-此时 `vite.config.ts` 会跳过本地 Yoga middleware：
-
-```ts
-...(graphQLProxyTarget ? [] : [gqlYogaDevPlugin(...)])
-```
-
-并启用 Vite proxy：
-
-```ts
-server: {
-  proxy: {
-    "/graphql": {
-      target: graphQLProxyTarget,
-      changeOrigin: true,
-    },
-  },
-}
-```
-
-客户端的 `graphqlFetcher` 不需要变化，它仍然请求相对路径 `/graphql`。是否同进程 Yoga、独立后端、反向代理、带鉴权 headers，都是应用自己的网络层选择。
+此时插件仍然生成 `src/gqlens/*`，但不会注册本地 middleware；客户端继续请求相对路径 `/graphql`，由 Vite proxy 转发。
 
 ## 生成文件
 
-`src/gqlens/` 只提交 README 和 `.gitignore`。运行 Vite 后会生成：
+`src/gqlens/` 只提交 README 和 `.gitignore`。运行 dev/build 后会生成：
 
 - `src/gqlens/types.ts`
 - `src/gqlens/accessor.ts`
@@ -154,13 +119,4 @@ npm run typecheck
 npm run dev
 ```
 
-这个示例使用 `graphql` 原生构造器，避免仓库把某个服务端框架 API 写死。如果换成 GQLoom，保持边界不变，只需要把 `createSchema()` 的实现替换成 `weave(userResolver, projectResolver, ...)`。
-
-## Rolldown 插件用法是否最优
-
-这里的用法刻意分成两层：
-
-- 构建态：直接使用 `@gqlens/codegen/rolldown`，它使用 Rolldown hook filter 限定候选模块，并在 `buildStart` 生成文件，避免客户端 import generated accessor 时文件尚不存在。
-- 开发态：使用 Vite 插件包装同一个 codegen 能力，因为 `handleHotUpdate`、ModuleRunner、dev server websocket、proxy 都是 Vite 层能力，不属于纯 Rolldown 插件。
-
-也就是说，Rolldown 插件只负责它最擅长的构建期发现、watch 和生成；Vite 插件只负责 dev server/HMR/proxy。两边没有互相冒充。
+这个示例使用 `graphql` 原生构造器，避免仓库把某个服务端框架 API 写死。如果换成 GQLoom，保持边界不变，只需要把 `createSchema()` 的实现替换成 `weave(...)`。

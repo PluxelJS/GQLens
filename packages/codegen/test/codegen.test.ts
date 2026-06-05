@@ -1,9 +1,7 @@
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { createFixture, type FsFixture } from "fs-fixture";
 import { buildSchema } from "graphql";
-import { generate } from "@gqlens/codegen";
-import { gqlensRolldown } from "@gqlens/codegen/rolldown";
+import { generateFiles } from "@gqlens/codegen";
 
 const testSchema = /* graphql */ `
   type User {
@@ -49,9 +47,9 @@ const testSchema = /* graphql */ `
 
 describe("@gqlens/codegen", () => {
   test("generates type definitions from schema", async () => {
-    const result = await generate({ schema: testSchema, output: "/gqlens" });
-    const types = result.files["types.ts"]!;
-    // Plugin generates type aliases, Scalars map, Maybe helpers
+    const files = await generateFiles({ schema: testSchema });
+    const types = files["types.ts"]!;
+    // Codegen emits type aliases, Scalars map, and Maybe helpers.
     expect(types).toContain("export type User = {");
     expect(types).toContain("id: Scalars['ID']['output']");
     expect(types).toContain("name: Scalars['String']['output']");
@@ -59,7 +57,7 @@ describe("@gqlens/codegen", () => {
     expect(types).toContain("online: Scalars['Boolean']['output']");
     expect(types).toContain("posts: Array<Post>");
     expect(types).toContain("export type Post = {");
-    // Status enum is generated as union type
+    // Status enum is generated as a union type.
     expect(types).toContain("export type Status =");
     expect(types).toContain("'ACTIVE'");
     // Args types generated
@@ -68,8 +66,8 @@ describe("@gqlens/codegen", () => {
   });
 
   test("generates normalizer metadata", async () => {
-    const result = await generate({ schema: testSchema, output: "/gqlens" });
-    const normalizer = result.files["normalizer.ts"]!;
+    const files = await generateFiles({ schema: testSchema });
+    const normalizer = files["normalizer.ts"]!;
     expect(normalizer).toContain('type: "User"');
     expect(normalizer).toContain('nestedType: "Post"');
     expect(normalizer).toContain("isList: true");
@@ -77,8 +75,8 @@ describe("@gqlens/codegen", () => {
   });
 
   test("generates invalidation spec union", async () => {
-    const result = await generate({ schema: testSchema, output: "/gqlens" });
-    const invalidation = result.files["invalidation.ts"]!;
+    const files = await generateFiles({ schema: testSchema });
+    const invalidation = files["invalidation.ts"]!;
     expect(invalidation).toContain("export type InvalidationSpec");
     expect(invalidation).toContain('"name"');
     expect(invalidation).toContain('"avatar"');
@@ -87,8 +85,8 @@ describe("@gqlens/codegen", () => {
   });
 
   test("generates accessor file with adapter import", async () => {
-    const result = await generate({ schema: testSchema, output: "/gqlens" });
-    const accessor = result.files["accessor.ts"]!;
+    const files = await generateFiles({ schema: testSchema });
+    const accessor = files["accessor.ts"]!;
     expect(accessor).toContain(
       'import { useGQLensSession, useLiveGQLensSession } from "@gqlens/react"',
     );
@@ -118,7 +116,7 @@ describe("@gqlens/codegen", () => {
   });
 
   test("uses the same args type names as GraphQL Code Generator", async () => {
-    const result = await generate({
+    const files = await generateFiles({
       schema: /* graphql */ `
         type User {
           id: ID!
@@ -129,11 +127,10 @@ describe("@gqlens/codegen", () => {
           useURL(URL: String!): User
         }
       `,
-      output: "/gqlens",
     });
 
-    const types = result.files["types.ts"]!;
-    const accessor = result.files["accessor.ts"]!;
+    const types = files["types.ts"]!;
+    const accessor = files["accessor.ts"]!;
     expect(types).toContain("export type QueryUser_By_IdArgs");
     expect(types).toContain("export type QueryUseUrlArgs");
     expect(accessor).toContain("user_by_id: (args: Types.QueryUser_By_IdArgs)");
@@ -141,8 +138,8 @@ describe("@gqlens/codegen", () => {
   });
 
   test("supports solid framework option", async () => {
-    const result = await generate({ schema: testSchema, output: "/gqlens", framework: "solid" });
-    const accessor = result.files["accessor.ts"]!;
+    const files = await generateFiles({ schema: testSchema, framework: "solid" });
+    const accessor = files["accessor.ts"]!;
     expect(accessor).toContain(
       'import { createQuery as createGQLensSession, createLiveQuery as createLiveGQLensSession } from "@gqlens/solid"',
     );
@@ -150,10 +147,18 @@ describe("@gqlens/codegen", () => {
     expect(accessor).toContain("export function createLiveQuery");
   });
 
+  test("accepts a GraphQLSchema object", async () => {
+    const files = await generateFiles({
+      schema: buildSchema(testSchema),
+    });
+
+    expect(files["types.ts"]).toContain("export type User = {");
+    expect(files["accessor.ts"]).toContain("export function useQuery");
+  });
+
   test("supports custom adapter descriptors", async () => {
-    const result = await generate({
+    const files = await generateFiles({
       schema: testSchema,
-      output: "/gqlens",
       adapter: {
         module: "@gqlens/vue",
         querySessionImport: "useGQLensVueSession",
@@ -165,7 +170,7 @@ describe("@gqlens/codegen", () => {
       },
     });
 
-    const accessor = result.files["accessor.ts"]!;
+    const accessor = files["accessor.ts"]!;
     expect(accessor).toContain(
       'import { useGQLensVueSession, useLiveGQLensVueSession } from "@gqlens/vue"',
     );
@@ -177,12 +182,12 @@ describe("@gqlens/codegen", () => {
     let f: FsFixture | undefined;
     try {
       f = await createFixture();
-      const result = await generate({ schema: testSchema, output: "/gqlens" });
+      const files = await generateFiles({ schema: testSchema });
 
-      await f.writeFile("types.ts", result.files["types.ts"]!, "utf8");
-      await f.writeFile("normalizer.ts", result.files["normalizer.ts"]!, "utf8");
-      await f.writeFile("invalidation.ts", result.files["invalidation.ts"]!, "utf8");
-      await f.writeFile("accessor.ts", result.files["accessor.ts"]!, "utf8");
+      await f.writeFile("types.ts", files["types.ts"]!, "utf8");
+      await f.writeFile("normalizer.ts", files["normalizer.ts"]!, "utf8");
+      await f.writeFile("invalidation.ts", files["invalidation.ts"]!, "utf8");
+      await f.writeFile("accessor.ts", files["accessor.ts"]!, "utf8");
 
       expect(await f.exists("types.ts")).toBe(true);
       expect(await f.exists("normalizer.ts")).toBe(true);
@@ -192,79 +197,4 @@ describe("@gqlens/codegen", () => {
       await f?.rm();
     }
   });
-
-  describe("rolldown plugin", () => {
-    test("generates files from a server createSchema factory", async () => {
-      let f: FsFixture | undefined;
-      try {
-        f = await createFixture();
-        const createSchema = () => buildSchema(testSchema);
-        const plugin = gqlensRolldown({
-          output: join(f.path, "generated"),
-          schema: () => createSchema(),
-          framework: "solid",
-          watch: [/schema\.ts$/],
-        });
-        const ctx = pluginContext();
-
-        await plugin.buildStart.call(ctx);
-
-        expect(await f.readFile("generated/types.ts", "utf8")).toContain("export type User = {");
-        expect(await f.readFile("generated/accessor.ts", "utf8")).toContain('from "@gqlens/solid"');
-
-        await plugin.buildEnd.call(ctx);
-        expect(await f.readFile("generated/accessor.ts", "utf8")).toContain('from "@gqlens/solid"');
-
-        await plugin.watchChange.call(ctx, join(f.path, "schema.ts"));
-        expect(await f.readFile("generated/types.ts", "utf8")).toContain("export type User = {");
-      } finally {
-        await f?.rm();
-      }
-    });
-
-    test("discovers a printSchema module and writes generated files", async () => {
-      let f: FsFixture | undefined;
-      try {
-        f = await createFixture();
-        const schemaModule = join(f.path, "schema.mjs");
-        const schemaSource = `export default /* printSchema graphql */ ${JSON.stringify(testSchema)};`;
-        await f.writeFile("schema.mjs", schemaSource, "utf8");
-
-        const plugin = gqlensRolldown({ output: join(f.path, "generated") });
-        const ctx = pluginContext();
-
-        await plugin.buildStart.call(ctx);
-        plugin.transform.handler.call(ctx, schemaSource, schemaModule);
-        await plugin.buildEnd.call(ctx);
-
-        expect(ctx.watched).toStrictEqual([schemaModule]);
-        expect(await f.readFile("generated/types.ts", "utf8")).toContain("QueryUserArgs");
-        expect(await f.readFile("generated/normalizer.ts", "utf8")).toContain('type: "User"');
-        expect(await f.readFile("generated/invalidation.ts", "utf8")).toContain(
-          "export type InvalidationSpec",
-        );
-        expect(await f.readFile("generated/accessor.ts", "utf8")).toContain(
-          "export function useQuery",
-        );
-      } finally {
-        await f?.rm();
-      }
-    });
-  });
 });
-
-function pluginContext(): {
-  watched: string[];
-  addWatchFile(id: string): void;
-  error(error: Error | string): never;
-} {
-  return {
-    watched: [],
-    addWatchFile(id) {
-      this.watched.push(id);
-    },
-    error(error): never {
-      throw error instanceof Error ? error : new Error(error);
-    },
-  };
-}

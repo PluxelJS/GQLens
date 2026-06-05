@@ -1,11 +1,11 @@
 import react from "@vitejs/plugin-react";
 import { printSchema } from "graphql";
 import { defineConfig, type Plugin } from "vite";
-import { gqlensRolldown } from "@gqlens/codegen/rolldown";
+import { generateFiles } from "@gqlens/codegen";
 
 import { createSchema } from "./src/graphql/schema";
-import { gqlensCodegenDevPlugin } from "./tooling/vite-plugin-gqlens-codegen";
-import { gqlYogaDevPlugin } from "./tooling/vite-plugin-gql-yoga";
+import { graphqlCodegenPlugin } from "./tooling/vite-plugin-graphql";
+import { writeGeneratedFiles } from "./tooling/write-generated-files";
 
 const graphQLRelatedFiles = [
   /\/src\/graphql\//,
@@ -17,51 +17,48 @@ const graphQLEndpoint = "/graphql";
 const graphQLProxyTarget = process.env.GRAPHQL_PROXY_TARGET;
 
 const gqlensBuildCodegenPlugin = {
-  ...gqlensRolldown({
-    output: "src/gqlens",
-    schema: () => printSchema(createSchema()),
-    framework: "react",
-    watch: graphQLRelatedFiles,
-  }),
+  name: "gqlens-build-codegen",
   apply: "build",
+  async buildStart() {
+    const files = await generateFiles({
+      schema: printSchema(createSchema()),
+      framework: "react",
+    });
+    await writeGeneratedFiles(files, "src/gqlens");
+  },
 } satisfies Plugin;
 
 export default defineConfig({
   appType: "spa",
 
   plugins: [
-    gqlensCodegenDevPlugin({
+    graphqlCodegenPlugin({
       output: "src/gqlens",
-      entry: "/src/graphql/codegen-entry.ts",
+      schemaEntry: "/src/graphql/schema.ts",
+      handlerEntry: "/src/graphql/yoga.ts",
+      endpoint: graphQLEndpoint,
       include: graphQLRelatedFiles,
       framework: "react",
+      middleware: !graphQLProxyTarget,
     }),
-
-    ...(graphQLProxyTarget
-      ? []
-      : [
-          gqlYogaDevPlugin({
-            endpoint: graphQLEndpoint,
-            entry: "/src/graphql/dev-entry.ts",
-            include: graphQLRelatedFiles,
-          }),
-        ]),
 
     gqlensBuildCodegenPlugin,
 
     react(),
   ],
 
-  server: graphQLProxyTarget
+  ...(graphQLProxyTarget
     ? {
-        proxy: {
-          [graphQLEndpoint]: {
-            target: graphQLProxyTarget,
-            changeOrigin: true,
+        server: {
+          proxy: {
+            [graphQLEndpoint]: {
+              target: graphQLProxyTarget,
+              changeOrigin: true,
+            },
           },
         },
       }
-    : undefined,
+    : {}),
 
   ssr: {
     noExternal: ["graphql", "graphql-yoga"],
