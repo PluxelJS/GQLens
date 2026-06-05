@@ -18,11 +18,11 @@ Todo:9.done      → Signal<boolean>
 
 ```
 Query.viewer                  → Ref<User:1>
-Query.todos(done:false).ids   → Ref<Todo:1>[]
-User:1.posts(first:10).ids    → Ref<Post:10>[]
+Query.todos(done:false).ids   → string[]
+User:1.posts(first:10).ids    → string[]
 ```
 
-slot 负责表达“这条 GraphQL 路径当前指向谁”，实体字段负责表达“这个实体上的某个字段是什么值”。二者分离后，不同路径命中同一实体时才能自然共享字段更新。
+slot 负责表达“这条 GraphQL 路径当前指向谁”；列表 identity 的公开读取值是稳定 ID 数组。实体字段负责表达“这个实体上的某个字段是什么值”。二者分离后，不同路径命中同一实体时才能自然共享字段更新。
 
 示例：服务端返回
 
@@ -33,7 +33,7 @@ slot 负责表达“这条 GraphQL 路径当前指向谁”，实体字段负责
 写入：
 
 ```ts
-cache.field({ type: "User", id: "1" }, "name").set("Alice");
+cache.field({ type: "User", id: "1" }, "name").sig("Alice");
 ```
 
 仅通知读过 `q.user({ id: "1" }).name` 的 reader。
@@ -77,20 +77,31 @@ post.author.avatar   → User:1.avatar
 | 标量字段                      | field signal                    |
 | 无 id 的嵌套 JSON             | 单个 field signal（不递归分解） |
 
-不应将任意深层对象递归展开为 signal。
+不得将任意深层对象递归展开为 signal。
 
 这个规则的重点是保持响应式边界可预测：有 identity 的东西进入 normalized graph；没有 identity 的嵌套对象被当成字段值，而不是伪装成实体。
 
 ## Cache 接口
 
 ```ts
-interface NormalizedSignalCache {
-  field(ref: EntityRef, key: string): Signal<unknown>;
+interface FieldSignal<T = unknown> {
+  readonly sig: Signal<T>;
+  expires: number;
+}
+
+interface NormalizedCache {
+  field<T = unknown>(ref: EntityRef, key: string): FieldSignal<T>;
+  slot<T = unknown>(key: string): FieldSignal<T>;
   entity(type: string, id: string): EntityRef;
-  normalize(data: GraphQLResult): void;
-  invalidate(ref: EntityRef, keys?: string[]): void;
+  normalize(data: GraphQLResult, ttl?: number): void;
+  invalidate(ref: EntityRef, keys?: readonly string[]): void;
+  invalidateSlot(key: string): void;
+  isCached(ref: EntityRef, fieldKey: string): boolean;
+  isSlotCached(key: string): boolean;
 }
 ```
+
+`field()` 和 `slot()` 都返回带 TTL 元数据的 signal entry。adapter 只通过 `sig` 读写值；TTL / stale 判断留在 session 调度层处理。
 
 ## TTL
 
@@ -103,9 +114,17 @@ User:1.online → { data: true,     expires: 1717000030 }
 
 读取时检测 TTL：未过期直接返回；已过期则保留旧值返回、同时后台触发 `cache-and-network` fetch。fetch 完成后覆盖旧值并更新 TTL。
 
-用户通过 `useQuery({ ttl })` 配置默认 TTL，`0` 表示永不过期。
+session 通过 `ttl` 配置默认字段 TTL，`0` 表示永不过期。
 
 TTL 的语义是“stale”，不是“删除”。过期值仍可用于当前渲染，只是它对应的 active demand 会被 session 重新拉取。
+
+cache 必须保留 missing / null / stale 的区别：
+
+- missing：entry 不存在或 signal 值为 `undefined`
+- null：服务端明确写入 `null`
+- stale：entry 有值，但 `expires` 已过期
+
+stale entry 不得被读路径当成 missing。读取返回旧值，调度层负责 refetch。
 
 ## 一致性
 
