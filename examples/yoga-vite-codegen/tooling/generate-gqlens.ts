@@ -1,5 +1,5 @@
 import { generateFiles } from "../../../packages/codegen/src/index";
-import { createSchemaSDL } from "../src/graphql/schema";
+import { createSchemaSDL } from "../src/schema";
 import { writeGeneratedFiles } from "./write-generated-files";
 
 const files = await generateFiles({
@@ -7,4 +7,4 @@ const files = await generateFiles({
   framework: "react",
 });
 
-await writeGeneratedFiles(files, "src/gqlens");
+await writeGeneratedFiles(files, "web/gqlens");

@@ -26,16 +26,12 @@ export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, 
 
 export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
   const endpoint = options.endpoint ?? "/graphql";
-  const schemaEntry = options.schemaEntry ?? "/src/graphql/schema.ts";
-  const handlerEntry = options.handlerEntry ?? "/src/graphql/yoga.ts";
+  const schemaEntry = options.schemaEntry ?? "/src/schema.ts";
+  const handlerEntry = options.handlerEntry ?? "/src/yoga.ts";
   const handlerExports = normalizeExports(
     options.handlerExport ?? ["createHandler", "createNodeHandler", "createYogaHandler"],
   );
-  const include = options.include ?? [
-    /\/src\/graphql\//,
-    /\/src\/services\//,
-    /\/src\/server-runtime\//,
-  ];
+  const include = options.include ?? [/\/src\//];
   const enableMiddleware = options.middleware ?? true;
 
   let config: ResolvedConfig;

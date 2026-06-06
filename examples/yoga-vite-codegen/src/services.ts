@@ -1,4 +1,4 @@
-import type { db, ExampleComment, ExamplePost, ExampleUser } from "../server-runtime/db";
+import type { db, ExampleComment, ExamplePost, ExampleUser } from "./db";
 
 export function createServices(database: typeof db) {
   return {

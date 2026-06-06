@@ -16,30 +16,30 @@
 
 不要让业务代码直接依赖 `virtual:` 模块。
 
-推荐结构：
+推荐结构保持前后端清晰分区，不额外拆出 `graphql/ services/ server-runtime/` 这类示例里用不到的层级：
 
 ```txt
-src/graphql/
-  schema.ts                # GQLoom schema entry，真实 TS
+src/
+  schema.ts                # schema entry，真实 TS
   yoga.ts                  # Yoga handler factory，真实 TS
   context.ts               # context / dataloader，真实 TS
+  server.ts                # standalone backend
 
-  client/
-    index.ts               # 前端稳定入口
-    gqlens.generated.ts    # GQLens 生成物
-    schema.generated.ts    # GQLens 生成物
+web/
+  client/                  # React app
+  gqlens/                  # GQLens generated files
 ```
 
 前端只 import：
 
 ```ts
-import { query, mutation } from "@/graphql/client";
+import { useQuery, api } from "../gqlens/accessor";
 ```
 
 服务端只 import：
 
 ```ts
-import { schema } from "@/graphql/schema";
+import { createSchema } from "./schema";
 ```
 
 `virtual:` 模块只允许作为 Vite 插件内部胶水，不作为用户 API。
@@ -47,7 +47,7 @@ import { schema } from "@/graphql/schema";
 ## HMR 主链路
 
 ```txt
-src/graphql/schema.ts changed
+src/schema.ts changed
         ↓
 Vite invalidates server module graph
         ↓

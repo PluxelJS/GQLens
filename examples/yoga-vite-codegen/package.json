@@ -6,12 +6,12 @@
     "codegen": "tsx tooling/generate-gqlens.ts",
     "dev": "npm run codegen && GRAPHQL_PROXY_TARGET=http://127.0.0.1:4000 vite",
     "dev:client": "npm run codegen && GRAPHQL_PROXY_TARGET=http://127.0.0.1:4000 vite",
-    "dev:server": "tsx src/server/prod.ts",
+    "dev:server": "tsx src/server.ts",
     "build": "npm run codegen && vite build",
     "typecheck": "npm run codegen && tsc --noEmit",
-    "test": "npm run codegen && tsx src/test/frontend-contract.ts && tsx src/test/smoke.ts",
-    "verify": "npm run codegen && tsc --noEmit && tsx src/test/frontend-contract.ts && tsx src/test/smoke.ts && vite build",
-    "server": "tsx src/server/prod.ts"
+    "test": "npm run codegen && tsx test/frontend-contract.ts && tsx test/smoke.ts",
+    "verify": "npm run codegen && tsc --noEmit && tsx test/frontend-contract.ts && tsx test/smoke.ts && vite build",
+    "server": "tsx src/server.ts"
   },
   "dependencies": {
     "@gqlens/core": "file:../../packages/core",

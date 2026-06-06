@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-import { createYogaHandler } from "../graphql/yoga";
+import { createYogaHandler } from "./yoga";
 
 const yoga = createYogaHandler();
 const server = createServer(yoga);

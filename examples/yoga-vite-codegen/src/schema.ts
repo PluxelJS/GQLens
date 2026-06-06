@@ -10,7 +10,7 @@ import {
   printSchema,
 } from "graphql";
 import type { AppContext } from "./context";
-import type { ExampleComment, ExamplePost, ExampleUser } from "../server-runtime/db";
+import type { ExampleComment, ExamplePost, ExampleUser } from "./db";
 
 const RoleType = new GraphQLEnumType({
   name: "Role",

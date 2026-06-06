@@ -1,7 +1,7 @@
 import type { YogaInitialContext } from "graphql-yoga";
 
-import { db } from "../server-runtime/db";
-import { createServices } from "../services";
+import { db } from "./db";
+import { createServices } from "./services";
 
 export interface AppContext {
   readonly request: Request;

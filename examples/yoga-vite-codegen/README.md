@@ -4,7 +4,8 @@
 
 ## 核心边界
 
-- 用户入口都是真实 TS 文件：`src/graphql/schema.ts`、`src/graphql/yoga.ts`、`src/gqlens/*`。
+- 服务端入口都是真实 TS 文件：`src/schema.ts`、`src/yoga.ts`、`src/server.ts`。
+- 前端代码放在 `web/client`，GQLens 生成物放在 `web/gqlens`。
 - dev 下 Vite ModuleRunner 重新 import `schema.ts`，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
 - Yoga dev middleware 只缓存当前 handler 引用，GraphQL 相关文件变化后替换 handler，不重启 Vite server。
@@ -26,7 +27,7 @@ const gqlensBuildCodegenPlugin = {
       schema: printSchema(createSchema()),
       framework: "react",
     });
-    await writeGeneratedFiles(files, "src/gqlens");
+    await writeGeneratedFiles(files, "web/gqlens");
   },
 };
 ```
@@ -35,9 +36,9 @@ const gqlensBuildCodegenPlugin = {
 
 ```ts
 graphqlCodegenPlugin({
-  output: "src/gqlens",
-  schemaEntry: "/src/graphql/schema.ts",
-  handlerEntry: "/src/graphql/yoga.ts",
+  output: "web/gqlens",
+  schemaEntry: "/src/schema.ts",
+  handlerEntry: "/src/yoga.ts",
   endpoint: "/graphql",
   include: graphQLRelatedFiles,
   framework: "react",
@@ -53,7 +54,7 @@ const files = await generateFiles({
   framework: "react",
 });
 
-await writeGeneratedFiles(files, "src/gqlens");
+await writeGeneratedFiles(files, "web/gqlens");
 ```
 
 如果你想写自己的 Rolldown/Vite/Rspack 插件，只需要在合适的 hook 里拿到 SDL，然后调用 `@gqlens/codegen` 的 `generateFiles()`。GQLens 不接管 output path、content-diff 写盘、watch/filter/candidate discovery。
@@ -63,13 +64,13 @@ await writeGeneratedFiles(files, "src/gqlens");
 ## HMR 流程
 
 ```txt
-src/graphql/* changed
+src/* changed
   -> Vite invalidates server module graph
-  -> plugin imports /src/graphql/schema.ts with ModuleRunner
+  -> plugin imports /src/schema.ts with ModuleRunner
   -> createSchema()
   -> printSchema()
   -> compare with last in-memory SDL
-  -> SDL changed: generate src/gqlens/*
+  -> SDL changed: generate web/gqlens/*
   -> generated files are written only if content changed
   -> generated content changed: Vite client graph HMR
 
@@ -77,7 +78,7 @@ POST /graphql
   -> same Vite dev server middleware
   -> current Yoga handler
   -> file change clears handler cache
-  -> next request creates a fresh handler from /src/graphql/yoga.ts
+  -> next request creates a fresh handler from /src/yoga.ts
 ```
 
 Resolver/context-only changes still refresh the Yoga handler, but SDL stays identical, so GQLens codegen and client HMR do not run.
@@ -103,18 +104,18 @@ Resolver/context-only changes still refresh the Yoga handler, but SDL stays iden
 - `api.comment.add`
 - `api.userOnline.toggle`
 
-`src/client/generated-usage.ts` 是手写的类型样例，参与 `tsc --noEmit`，用于证明 generated accessor、selector、invalidation 和 mutation descriptor 可以被前端正常消费。
+`web/client/generated-usage.ts` 是手写的类型样例，参与 `tsc --noEmit`，用于证明 generated accessor、selector、invalidation 和 mutation descriptor 可以被前端正常消费。
 
 如果你确实想把 `/graphql` 挂在同一个 Vite dev server 上，可以去掉 `GRAPHQL_PROXY_TARGET`。不过 GraphQL 工具链对多份 `graphql` package instance 很敏感；前后端分离的 proxy 模式更接近真实应用，也更稳定。
 
 ## 生成文件
 
-`src/gqlens/` 只提交 README 和 `.gitignore`。运行 dev/build 后会生成：
+`web/gqlens/` 只提交 README 和 `.gitignore`。运行 dev/build 后会生成：
 
-- `src/gqlens/types.ts`
-- `src/gqlens/accessor.ts`
-- `src/gqlens/normalizer.ts`
-- `src/gqlens/invalidation.ts`
+- `web/gqlens/types.ts`
+- `web/gqlens/accessor.ts`
+- `web/gqlens/normalizer.ts`
+- `web/gqlens/invalidation.ts`
 
 这些文件来自 schema，不应该手写。
 

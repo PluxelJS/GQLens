@@ -1,5 +1,5 @@
-import { api } from "../gqlens/accessor";
-import { commentsInvalidation, userCardSelection } from "../client/generated-usage";
+import { commentsInvalidation, userCardSelection } from "../web/client/generated-usage";
+import { api } from "../web/gqlens/accessor";
 
 assertEqual(api.comment.add.operationName, "addComment", "comment mutation name");
 assertEqual(

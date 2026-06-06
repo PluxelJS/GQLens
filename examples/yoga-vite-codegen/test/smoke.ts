@@ -1,5 +1,5 @@
-import { api } from "../gqlens/accessor";
-import { createYogaHandler } from "../graphql/yoga";
+import { createYogaHandler } from "../src/yoga";
+import { api } from "../web/gqlens/accessor";
 
 interface GraphQLPayload<T> {
   readonly data?: T | undefined;

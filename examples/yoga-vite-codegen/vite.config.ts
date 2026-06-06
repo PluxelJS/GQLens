@@ -3,15 +3,11 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { generateFiles } from "../../packages/codegen/src/index";
 
-import { createSchemaSDL } from "./src/graphql/schema";
+import { createSchemaSDL } from "./src/schema";
 import { graphqlCodegenPlugin } from "./tooling/vite-plugin-graphql";
 import { writeGeneratedFiles } from "./tooling/write-generated-files";
 
-const graphQLRelatedFiles = [
-  /\/src\/graphql\//,
-  /\/src\/services\//,
-  /\/src\/server-runtime\//,
-] as const;
+const graphQLRelatedFiles = [/\/src\//] as const;
 
 const graphQLEndpoint = "/graphql";
 const graphQLProxyTarget = process.env.GRAPHQL_PROXY_TARGET;
@@ -25,7 +21,7 @@ const gqlensBuildCodegenPlugin = {
       schema: createSchemaSDL(),
       framework: "react",
     });
-    await writeGeneratedFiles(files, "src/gqlens");
+    await writeGeneratedFiles(files, "web/gqlens");
   },
 } satisfies Plugin;
 
@@ -34,9 +30,9 @@ export default defineConfig({
 
   plugins: [
     graphqlCodegenPlugin({
-      output: "src/gqlens",
-      schemaEntry: "/src/graphql/schema.ts",
-      handlerEntry: "/src/graphql/yoga.ts",
+      output: "web/gqlens",
+      schemaEntry: "/src/schema.ts",
+      handlerEntry: "/src/yoga.ts",
       endpoint: graphQLEndpoint,
       include: graphQLRelatedFiles,
       framework: "react",
