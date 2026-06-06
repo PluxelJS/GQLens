@@ -68,3 +68,17 @@ export const generatedNormalizerEntries: readonly NormalizerEntry[] = normalizer
 export function readPet(pet: PetNode): Types.Pet["name"] | undefined {
   return pet.name;
 }
+
+export function rejectUnsupportedAccessorShapes(q: QueryNode): void {
+  // @ts-expect-error Query user requires its non-null id argument.
+  q.user({});
+
+  // @ts-expect-error Generated nodes only expose schema fields.
+  void q.viewer.missingField;
+
+  // @ts-expect-error Ordinary entity lists expose ids, not refs.
+  void q.viewer.posts.refs;
+
+  // @ts-expect-error Abstract lists expose refs, not ids.
+  void q.search({ text: "text" }).ids;
+}

@@ -1,0 +1,41 @@
+scalar DateTime
+
+enum SortOrder {
+  ASC
+  DESC
+}
+
+input RangeInput {
+  from: DateTime
+  to: DateTime
+}
+
+input SearchFilter {
+  text: String
+  tags: [String!]
+  range: RangeInput
+  order: SortOrder = ASC
+}
+
+type Report {
+  id: ID!
+  title: String!
+  createdAt: DateTime!
+}
+
+type AuditEvent {
+  id: ID!
+  message: String!
+}
+
+type Query {
+  reports(filter: SearchFilter, ids: [ID!], limit: Int = 10): [Report!]!
+  latestReport: Report
+}
+
+type Mutation {
+  ping: Boolean!
+  rebuildIndex: Boolean!
+  renameReport(id: ID!, title: String!): Report!
+  createAudit(message: String!): AuditEvent!
+}

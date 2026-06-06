@@ -24,7 +24,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsdown --minify"
+    "build": "tsdown --minify",
+    "update-fixtures": "npm run build && node scripts/update-fixtures.mjs"
   },
   "dependencies": {
     "@graphql-codegen/core": "^4.0.2",

@@ -89,7 +89,16 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     node: true,
     vitest: true,
   },
-  ignorePatterns: ["**/dist/**", "**/coverage/**", "**/out/**", ".turbo/**"],
+  ignorePatterns: [
+    "**/dist/**",
+    "**/coverage/**",
+    "**/out/**",
+    ".turbo/**",
+    "packages/codegen/test/fixtures/**/accessor.ts",
+    "packages/codegen/test/fixtures/**/invalidation.ts",
+    "packages/codegen/test/fixtures/**/normalizer.ts",
+    "packages/codegen/test/fixtures/**/types.ts",
+  ],
 });
 
 export default config;

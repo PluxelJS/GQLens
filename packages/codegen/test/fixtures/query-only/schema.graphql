@@ -1,0 +1,8 @@
+type Profile {
+  id: ID!
+  handle: String!
+}
+
+type Query {
+  profile(id: ID!): Profile
+}

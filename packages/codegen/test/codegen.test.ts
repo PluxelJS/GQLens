@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { buildSchema } from "graphql";
 import { generateFiles } from "@gqlens/codegen";
 
-const basicFixture = new URL("./fixtures/basic/", import.meta.url);
+const fixturesRoot = new URL("./fixtures/", import.meta.url);
+const basicFixture = fixtureUrl("basic");
 const generatedFixtureFiles = [
   "types.ts",
   "normalizer.ts",
@@ -11,17 +12,29 @@ const generatedFixtureFiles = [
   "accessor.ts",
 ] as const;
 const testSchema = readFixture("schema.graphql");
+const fixtureNames = readdirSync(fixturesRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .toSorted();
 
 function readFixture(fileName: string): string {
   return readFileSync(new URL(fileName, basicFixture), "utf8");
 }
 
+function fixtureUrl(name: string): URL {
+  return new URL(`${name}/`, fixturesRoot);
+}
+
+function readFixtureFile(fixtureName: string, fileName: string): string {
+  return readFileSync(new URL(fileName, fixtureUrl(fixtureName)), "utf8");
+}
+
 describe("@gqlens/codegen", () => {
-  test("matches checked-in generated fixture files", async () => {
-    const files = await generateFiles({ schema: testSchema });
+  test.each(fixtureNames)("matches checked-in %s fixture files", async (fixtureName) => {
+    const files = await generateFiles({ schema: readFixtureFile(fixtureName, "schema.graphql") });
 
     for (const fileName of generatedFixtureFiles) {
-      expect(files[fileName]).toBe(readFixture(fileName));
+      expect(files[fileName]).toBe(readFixtureFile(fixtureName, fileName));
     }
   });
 
