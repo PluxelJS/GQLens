@@ -1,4 +1,13 @@
+import { createRequire } from "node:module";
 import {
+  type GraphQLObjectType as GraphQLObjectTypeValue,
+  type GraphQLSchema as GraphQLSchemaValue,
+} from "graphql";
+import type { AppContext } from "./context";
+import type { ExampleComment, ExamplePost, ExampleUser } from "./db";
+
+const require = createRequire(import.meta.url);
+const {
   GraphQLBoolean,
   GraphQLEnumType,
   GraphQLID,
@@ -8,9 +17,7 @@ import {
   GraphQLSchema,
   GraphQLString,
   printSchema,
-} from "graphql";
-import type { AppContext } from "./context";
-import type { ExampleComment, ExamplePost, ExampleUser } from "./db";
+} = require("graphql") as typeof import("graphql");
 
 const RoleType = new GraphQLEnumType({
   name: "Role",
@@ -20,9 +27,9 @@ const RoleType = new GraphQLEnumType({
   },
 });
 
-let UserType: GraphQLObjectType<ExampleUser, AppContext>;
-let PostType: GraphQLObjectType<ExamplePost, AppContext>;
-let CommentType: GraphQLObjectType<ExampleComment, AppContext>;
+let UserType: GraphQLObjectTypeValue<ExampleUser, AppContext>;
+let PostType: GraphQLObjectTypeValue<ExamplePost, AppContext>;
+let CommentType: GraphQLObjectTypeValue<ExampleComment, AppContext>;
 
 UserType = new GraphQLObjectType<ExampleUser, AppContext>({
   name: "User",
@@ -67,7 +74,7 @@ CommentType = new GraphQLObjectType<ExampleComment, AppContext>({
   }),
 });
 
-export function createSchema(): GraphQLSchema {
+export function createSchema(): GraphQLSchemaValue {
   const QueryType = new GraphQLObjectType<unknown, AppContext>({
     name: "Query",
     fields: {

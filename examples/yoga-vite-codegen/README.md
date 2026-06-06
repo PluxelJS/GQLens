@@ -8,7 +8,7 @@
 - 前端代码放在 `web/client`，GQLens 生成物放在 `web/gqlens`。
 - dev 下 Vite ModuleRunner 重新 import `schema.ts`，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
-- Yoga dev middleware 只缓存当前 handler 引用，GraphQL 相关文件变化后替换 handler，不重启 Vite server。
+- Vite dev server 同时承载前端、`/graphql` middleware、schema diff 和 codegen HMR。
 - build 下没有 ModuleRunner，所以 `vite.config.ts` 在 `buildStart` 里直接调用 `generateFiles()`。
 - dev 插件只用 Vite `handleHotUpdate`，不维护额外依赖图。
 
@@ -81,15 +81,15 @@ POST /graphql
   -> next request creates a fresh handler from /src/yoga.ts
 ```
 
-Resolver/context-only changes still refresh the Yoga handler, but SDL stays identical, so GQLens codegen and client HMR do not run.
+Resolver/context-only changes refresh the Yoga handler, but SDL stays identical, so GQLens codegen and client HMR do not run.
 
 ## 前后端演示
 
-这个 example 默认按前后端分离运行：
+这个 example 默认由一个 Vite dev server 同时运行前端和 GraphQL middleware：
 
-- Yoga 后端：`http://127.0.0.1:4000/graphql`
 - Vite 前端：`http://127.0.0.1:5173`
-- 前端请求相对路径 `/graphql`，由 Vite proxy 转发到 Yoga。
+- GraphQL：`http://127.0.0.1:5173/graphql`
+- 前端请求相对路径 `/graphql`，由同一个 Vite dev server 处理。
 
 前端页面会通过 generated accessor 读取：
 
@@ -106,7 +106,7 @@ Resolver/context-only changes still refresh the Yoga handler, but SDL stays iden
 
 `web/client/generated-usage.ts` 是手写的类型样例，参与 `tsc --noEmit`，用于证明 generated accessor、selector、invalidation 和 mutation descriptor 可以被前端正常消费。
 
-如果你确实想把 `/graphql` 挂在同一个 Vite dev server 上，可以去掉 `GRAPHQL_PROXY_TARGET`。不过 GraphQL 工具链对多份 `graphql` package instance 很敏感；前后端分离的 proxy 模式更接近真实应用，也更稳定。
+如果需要模拟真实前后端分离，也可以开两个终端运行 `npm run dev:server` 和 `npm run dev:client`。此时前端请求仍然使用相对路径 `/graphql`，由 Vite proxy 转发到独立 Yoga server。
 
 ## GQLens DX 证明点
 
@@ -167,14 +167,17 @@ npm install
 npm run verify
 ```
 
-开发时开两个终端：
-
-```sh
-npm run dev:server
-```
+开发时默认只需要：
 
 ```sh
 npm run dev
+```
+
+如果要模拟前后端分离，开两个终端：
+
+```sh
+npm run dev:server
+npm run dev:client
 ```
 
 也可以单独检查生成物和类型：

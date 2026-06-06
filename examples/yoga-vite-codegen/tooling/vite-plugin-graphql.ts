@@ -49,6 +49,10 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     );
   }
 
+  function rootPath(value: string): string {
+    return isAbsolute(value) ? value : join(config.root, value);
+  }
+
   function isGraphQLRequest(url: string | undefined): boolean {
     if (!url) {
       return false;
@@ -56,10 +60,6 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
     const { pathname } = new URL(url, "http://vite.local");
     return pathname === endpoint || pathname.startsWith(`${endpoint}/`);
-  }
-
-  function rootPath(value: string): string {
-    return isAbsolute(value) ? value : join(config.root, value);
   }
 
   async function loadDevSchemaSDL(): Promise<string> {
