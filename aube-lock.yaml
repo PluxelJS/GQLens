@@ -14,7 +14,6 @@ time:
   '@types/react-dom@19.2.3': 2025-11-12T04:37:39.524Z
   '@types/react@19.2.15': 2026-05-19T17:49:36.846Z
   alien-signals@3.2.1: 2026-05-14T14:29:07.122Z
-  fs-fixture@2.14.0: 2026-05-18T13:38:05.167Z
   graphql@16.14.0: 2026-05-06T12:31:46.906Z
   jsdom@29.1.1: 2026-04-30T08:52:48.353Z
   oxfmt@0.51.0: 2026-05-19T08:07:12.732Z
@@ -70,9 +69,6 @@ importers:
         specifier: ^13.0.3
         version: 13.0.3
     devDependencies:
-      fs-fixture:
-        specifier: ^2.14.0
-        version: 2.14.0
       graphql:
         specifier: ^16
         version: 16.14.0
@@ -832,10 +828,6 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
-
-  fs-fixture@2.14.0:
-    resolution: {integrity: sha512-lZBaSOewY5snBSyOjn3fmo2ES5gOR7Q1Y6dILH0/xR0xejjUhux65OGaFWhQ+jiyvTi5HOHqXQrQ9v48Lsmqbw==}
-    engines: {node: '>=18.0.0'}
 
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
@@ -1930,8 +1922,6 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.4):
     dependencies:
       picomatch: 4.0.4
-
-  fs-fixture@2.14.0: {}
 
   fsevents@2.3.3: {}
 

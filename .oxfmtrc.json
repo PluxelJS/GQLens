@@ -7,6 +7,10 @@
     ".turbo/**",
     "dist/**",
     "packages/*/dist/**",
+    "packages/codegen/test/fixtures/basic/accessor.ts",
+    "packages/codegen/test/fixtures/basic/invalidation.ts",
+    "packages/codegen/test/fixtures/basic/normalizer.ts",
+    "packages/codegen/test/fixtures/basic/types.ts",
     "node_modules/**",
     "out/**",
     "coverage/**"

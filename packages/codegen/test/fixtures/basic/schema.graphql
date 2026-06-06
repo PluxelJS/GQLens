@@ -1,0 +1,64 @@
+interface Node {
+  id: ID!
+}
+
+type User implements Node {
+  id: ID!
+  name: String!
+  avatar: String
+  online: Boolean!
+  posts: [Post!]!
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+  content: String!
+  tags: [String!]!
+  author: User!
+  comments: [Comment!]!
+}
+
+type Comment {
+  id: ID!
+  body: String!
+  author: User!
+}
+
+interface Pet {
+  id: ID!
+  name: String!
+}
+
+type Cat implements Pet {
+  id: ID!
+  name: String!
+  meows: Boolean!
+}
+
+type Dog implements Pet {
+  id: ID!
+  name: String!
+  barks: Boolean!
+}
+
+union SearchResult = User | Post
+
+type Query {
+  user(id: ID!): User
+  viewer: User
+  post(id: ID!): Post
+  posts(first: Int, done: Boolean): [Post!]!
+  pet(id: ID!): Pet
+  search(text: String!): [SearchResult!]!
+}
+
+type Mutation {
+  renameUser(id: ID!, name: String!): User!
+  addComment(postId: ID!, content: String!): Comment!
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}

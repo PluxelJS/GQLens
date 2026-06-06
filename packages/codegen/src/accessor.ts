@@ -53,15 +53,59 @@ function writeHeader(writer: CodeBlockWriter, adapter: AccessorAdapter): void {
   writer.writeLine(
     `import { ${adapter.querySessionImport}, ${adapter.liveSessionImport} } from ${quote(adapter.module)};`,
   );
-  writer.writeLine(
-    'import { createAccessorNode, defineInvalidation as defineGQLensInvalidation, defineSelection as defineGQLensSelection } from "@gqlens/core/codegen";',
-  );
-  writer.writeLine('import type { AccessorContext, SchemaMeta } from "@gqlens/core/codegen";');
-  writer.writeLine(
-    'import type { EntityRef, MutationOperation, QuerySessionConfig } from "@gqlens/core";',
+  writeNamedImport(writer, "@gqlens/core/codegen", [
+    "createAccessorNode",
+    "defineInvalidation as defineGQLensInvalidation",
+    "defineSelection as defineGQLensSelection",
+    "type AccessorContext",
+    "type SchemaMeta",
+  ]);
+  writeNamedImport(
+    writer,
+    "@gqlens/core",
+    [
+      "EntityRef",
+      "InvalidationTarget",
+      "MutationOperation",
+      "PreparedSelection",
+      "QuerySessionConfig",
+      "VariablePlaceholder",
+    ],
+    { typeOnly: true },
   );
   writer.writeLine('import type * as Types from "./types";');
   writer.blankLine();
+  writer.writeLine("type GQLensArgValue<T> =");
+  writer.indent(() => {
+    writer.writeLine("T extends readonly (infer Item)[]");
+    writer.indent(() => {
+      writer.writeLine("? readonly GQLensArgValue<Item>[] | VariablePlaceholder");
+      writer.writeLine(": T extends object");
+      writer.indent(() => {
+        writer.writeLine(
+          "? { readonly [Key in keyof T]: GQLensArgValue<T[Key]> } | VariablePlaceholder",
+        );
+        writer.writeLine(": T | VariablePlaceholder;");
+      });
+    });
+  });
+  writer.writeLine("type GQLensArgs<T> = { readonly [Key in keyof T]: GQLensArgValue<T[Key]> };");
+  writer.blankLine();
+}
+
+function writeNamedImport(
+  writer: CodeBlockWriter,
+  moduleName: string,
+  names: readonly string[],
+  options: { readonly typeOnly?: boolean } = {},
+): void {
+  writer.writeLine(`${options.typeOnly ? "import type" : "import"} {`);
+  writer.indent(() => {
+    for (const name of names) {
+      writer.writeLine(`${name},`);
+    }
+  });
+  writer.writeLine(`} from ${quote(moduleName)};`);
 }
 
 function writeNodeInterfaces(writer: CodeBlockWriter, schema: GraphQLSchema): void {
@@ -100,7 +144,7 @@ function fieldSignature(
     return `${field.name}: ${returnType}`;
   }
   const optional = field.args.every((arg) => !isNonNullType(arg.type)) ? "?" : "";
-  return `${field.name}: (args${optional}: Types.${argsTypeName(owner, field)}) => ${returnType}`;
+  return `${field.name}: (args${optional}: GQLensArgs<Types.${argsTypeName(owner, field)}>) => ${returnType}`;
 }
 
 function nodeReturnType(
@@ -184,7 +228,7 @@ function writeSelectorBuilders(writer: CodeBlockWriter, type: GraphQLObjectType)
 
   writer
     .write(
-      `export function defineSelection(callback: (q: ${nodeName}, v: (name: string) => { readonly __gqlensVariable: string }) => void) `,
+      `export function defineSelection(callback: (q: ${nodeName}, v: (name: string) => VariablePlaceholder) => void): PreparedSelection `,
     )
     .block(() => {
       writer.writeLine(
@@ -194,7 +238,9 @@ function writeSelectorBuilders(writer: CodeBlockWriter, type: GraphQLObjectType)
   writer.blankLine();
 
   writer
-    .write(`export function defineInvalidation(callback: (q: ${nodeName}) => unknown) `)
+    .write(
+      `export function defineInvalidation(callback: (q: ${nodeName}) => unknown): InvalidationTarget `,
+    )
     .block(() => {
       writer.writeLine(
         `return defineGQLensInvalidation<${nodeName}>(schemaMeta, schemaMeta.query, callback);`,
@@ -207,7 +253,20 @@ function writeMutationApi(writer: CodeBlockWriter, type: GraphQLObjectType): voi
   writeSection(writer, "Mutation operation descriptors");
   const groups = mutationGroups(type);
 
-  writer.writeLine("export const api = {");
+  writer.writeLine("export const api: {");
+  writer.indent(() => {
+    for (const [group, fields] of groups) {
+      writer.writeLine(`readonly ${group}: {`);
+      writer.indent(() => {
+        for (const field of fields) {
+          const { action } = mutationApiName(field.name);
+          writer.writeLine(`readonly ${action}: ${mutationOperationType(field)};`);
+        }
+      });
+      writer.writeLine("};");
+    }
+  });
+  writer.writeLine("} = {");
   writer.indent(() => {
     for (const [group, fields] of groups) {
       writer.writeLine(`${group}: {`);
@@ -433,9 +492,37 @@ function writeMutationOperation(
   writer.indent(() => {
     writer.writeLine(`operationName: ${quote(field.name)},`);
     writer.writeLine(`query: ${quote(mutationQuery(field))},`);
-    writer.writeLine(`variables: (input: ${argsType}) => (${mutationVariables(field)}),`);
+    writeMutationVariables(writer, field, argsType);
   });
-  writer.writeLine(`} satisfies MutationOperation<${argsType}, ${apiReturnType(field)}>,`);
+  writer.writeLine("},");
+}
+
+function mutationOperationType(field: GraphQLField<unknown, unknown>): string {
+  return `MutationOperation<${mutationArgsType(field)}, ${apiReturnType(field)}>`;
+}
+
+function writeMutationVariables(
+  writer: CodeBlockWriter,
+  field: GraphQLField<unknown, unknown>,
+  argsType: string,
+): void {
+  if (field.args.length === 0) {
+    writer.writeLine(`variables: (input: ${argsType}): Record<string, unknown> => {`);
+    writer.indent(() => {
+      writer.writeLine("void input;");
+      writer.writeLine("return {};");
+    });
+    writer.writeLine("},");
+    return;
+  }
+
+  writer.writeLine(`variables: (input: ${argsType}): Record<string, unknown> => ({`);
+  writer.indent(() => {
+    for (const arg of field.args) {
+      writer.writeLine(`${arg.name}: input.${arg.name},`);
+    }
+  });
+  writer.writeLine("}),");
 }
 
 function mutationArgsType(field: GraphQLField<unknown, unknown>): string {
@@ -455,13 +542,6 @@ function mutationQuery(field: GraphQLField<unknown, unknown>): string {
     : `mutation ${field.name}`;
   const call = args ? `${field.name}(${args})` : field.name;
   return selection ? `${header} { ${call} { ${selection} } }` : `${header} { ${call} }`;
-}
-
-function mutationVariables(field: GraphQLField<unknown, unknown>): string {
-  if (field.args.length === 0) {
-    return "{}";
-  }
-  return `{ ${field.args.map((arg) => `${arg.name}: input.${arg.name}`).join(", ")} }`;
 }
 
 function mutationSelection(field: GraphQLField<unknown, unknown>): string {

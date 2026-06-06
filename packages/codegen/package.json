@@ -33,7 +33,6 @@
     "code-block-writer": "^13.0.3"
   },
   "devDependencies": {
-    "fs-fixture": "^2.14.0",
     "graphql": "^16"
   },
   "peerDependencies": {
