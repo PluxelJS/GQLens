@@ -17,11 +17,13 @@ import {
   createLiveTransport,
   createNormalizedCache,
   createQuerySession,
+  applyInvalidations,
+  isInvalidationSpec,
   selectionKey,
   watchSignal,
   type AlienSignalReader,
   type Fetcher,
-  type InvalidationSpec,
+  type InvalidationInput,
   type LiveSubscriber,
   type MutationOperation,
   type NormalizedCache,
@@ -58,7 +60,7 @@ interface GQLensRuntime {
   readonly fetcher: Fetcher;
   session(config: QuerySessionConfig): QuerySession;
   liveSession(config: QuerySessionConfig): QuerySession;
-  invalidate(specs: readonly InvalidationSpec[]): void;
+  invalidate(specs: readonly InvalidationInput[]): void;
 }
 
 const ConfigContext = createContext<GQLensRuntime | null>(null);
@@ -93,7 +95,7 @@ export function GQLensProvider(props: {
         return getOrCreateLiveSession(liveSessions, cache, subscribe, config);
       },
 
-      invalidate(specs: readonly InvalidationSpec[]): void {
+      invalidate(specs: readonly InvalidationInput[]): void {
         applyInvalidations(cache, specs);
         for (const session of sessions.values()) {
           session.refetch();
@@ -307,7 +309,7 @@ function addSelection(paths: SelectionPath[], path: SelectionPath): void {
 
 interface MutationOptions {
   readonly optimistic?: ((cache: NormalizedCache) => void) | undefined;
-  readonly invalidates?: readonly InvalidationSpec[] | undefined;
+  readonly invalidates?: readonly InvalidationInput[] | undefined;
 }
 
 type MutationSource<TInput extends Record<string, unknown>, TData> =
@@ -337,7 +339,7 @@ async function runMutation<TInput extends Record<string, unknown>, TData>(
   cache: NormalizedCache,
   mutationFn: (input: TInput) => Promise<TData>,
   input: TInput & MutationOptions,
-  invalidate: (specs: readonly InvalidationSpec[]) => void,
+  invalidate: (specs: readonly InvalidationInput[]) => void,
 ): Promise<TData> {
   const snapshots = input.optimistic
     ? snapshotFields(cache, input.invalidates ?? [])
@@ -357,12 +359,6 @@ async function runMutation<TInput extends Record<string, unknown>, TData>(
   }
 }
 
-function applyInvalidations(cache: NormalizedCache, specs: readonly InvalidationSpec[]): void {
-  for (const spec of specs) {
-    cache.invalidate(cache.entity(spec.type, spec.id), spec.keys);
-  }
-}
-
 function normalizeMutationResult(cache: NormalizedCache, data: unknown): void {
   if (isEntityObject(data)) {
     cache.normalize({ mutation: data });
@@ -377,10 +373,13 @@ function isEntityObject(value: unknown): value is Record<string, unknown> {
 
 function snapshotFields(
   cache: NormalizedCache,
-  specs: readonly InvalidationSpec[],
+  specs: readonly InvalidationInput[],
 ): Map<string, Record<string, unknown>> {
   const snapshots = new Map<string, Record<string, unknown>>();
   for (const spec of specs) {
+    if (!isInvalidationSpec(spec)) {
+      continue;
+    }
     if (!spec.keys || spec.keys.length === 0) {
       continue;
     }
@@ -396,10 +395,14 @@ function snapshotFields(
 
 function rollback(
   cache: NormalizedCache,
-  specs: readonly InvalidationSpec[],
+  specs: readonly InvalidationInput[],
   snapshots: ReadonlyMap<string, Record<string, unknown>>,
 ): void {
   for (const spec of specs) {
+    if (!isInvalidationSpec(spec)) {
+      applyInvalidations(cache, [spec]);
+      continue;
+    }
     const ref = cache.entity(spec.type, spec.id);
     const snapshot = snapshots.get(`${spec.type}:${spec.id}`);
     if (snapshot && spec.keys) {

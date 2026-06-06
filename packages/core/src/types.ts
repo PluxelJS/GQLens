@@ -104,3 +104,5 @@ export interface PreparedSelection {
 export type InvalidationTarget =
   | { readonly kind: "selection"; readonly path: SelectionPath }
   | { readonly kind: "root"; readonly root: string; readonly steps: readonly SelectionStep[] };
+
+export type InvalidationInput = InvalidationSpec | InvalidationTarget;

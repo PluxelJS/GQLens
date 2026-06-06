@@ -59,6 +59,7 @@ function generateNodeInterfaces(schema: GraphQLSchema): string[] {
     }
     const nodeName = nodeTypeName(type.name);
     lines.push(`export interface ${nodeName} {`);
+    lines.push(`  readonly __typename: string | undefined;`);
     if (isObjectType(type) || isInterfaceType(type)) {
       for (const field of Object.values(type.getFields())) {
         const signature = fieldSignature(type, field);
@@ -199,29 +200,32 @@ function plannerFieldsFor(
     return `{\n${typenameMeta}      }`;
   }
 
-  const fields = Object.values(type.getFields()).map((field) => {
-    const unwrapped = unwrapOutput(field.type);
-    const objectType = isCompositeType(unwrapped) ? unwrapped : undefined;
-    const returnsObject = Boolean(objectType);
-    const parts = [`returnsEntity: ${JSON.stringify(returnsObject)}`];
-    if (objectType) {
-      parts.push(`graphQLType: ${JSON.stringify(objectType.name)}`);
-      const possible = schema ? possibleTypeNames(schema, objectType) : [];
-      if (possible.length > 0) {
-        parts.push("isAbstract: true");
-        parts.push(`possibleTypes: ${JSON.stringify(possible)}`);
+  const fields = [
+    possibleTypes.length > 0 ? "" : `        "__typename": { returnsEntity: false },`,
+    ...Object.values(type.getFields()).map((field) => {
+      const unwrapped = unwrapOutput(field.type);
+      const objectType = isCompositeType(unwrapped) ? unwrapped : undefined;
+      const returnsObject = Boolean(objectType);
+      const parts = [`returnsEntity: ${JSON.stringify(returnsObject)}`];
+      if (objectType) {
+        parts.push(`graphQLType: ${JSON.stringify(objectType.name)}`);
+        const possible = schema ? possibleTypeNames(schema, objectType) : [];
+        if (possible.length > 0) {
+          parts.push("isAbstract: true");
+          parts.push(`possibleTypes: ${JSON.stringify(possible)}`);
+        }
       }
-    }
-    if (isListTypeLike(field.type)) {
-      parts.push("returnsList: true");
-    }
-    if (field.args.length > 0) {
-      parts.push(
-        `args: { ${field.args.map((arg) => `${JSON.stringify(arg.name)}: ${JSON.stringify(String(arg.type))}`).join(", ")} }`,
-      );
-    }
-    return `        ${JSON.stringify(field.name)}: { ${parts.join(", ")} },`;
-  });
+      if (isListTypeLike(field.type)) {
+        parts.push("returnsList: true");
+      }
+      if (field.args.length > 0) {
+        parts.push(
+          `args: { ${field.args.map((arg) => `${JSON.stringify(arg.name)}: ${JSON.stringify(String(arg.type))}`).join(", ")} }`,
+        );
+      }
+      return `        ${JSON.stringify(field.name)}: { ${parts.join(", ")} },`;
+    }),
+  ].filter((line) => line.length > 0);
   return `{\n${typenameMeta}${fields.join("\n")}\n      }`;
 }
 
@@ -234,26 +238,31 @@ function metaFor(
     return `{ type: ${JSON.stringify(fallbackName)}, identityKeys: ["id", "__typename"], fields: {} }`;
   }
   const possibleTypes = schema ? possibleTypeNames(schema, type) : [];
-  const fields = (
-    isObjectType(type) || isInterfaceType(type) ? Object.values(type.getFields()) : []
-  ).map((field) => {
-    const unwrapped = unwrapOutput(field.type);
-    const kind =
-      isListTypeLike(field.type) && isCompositeType(unwrapped)
-        ? "list"
-        : isCompositeType(unwrapped)
-          ? "entity"
-          : "scalar";
-    const typeName = isCompositeType(unwrapped)
-      ? `, typeName: ${JSON.stringify(unwrapped.name)}`
-      : "";
-    const possible =
-      schema && isCompositeType(unwrapped) ? possibleTypeNames(schema, unwrapped) : [];
-    const abstract =
-      possible.length > 0 ? `, isAbstract: true, possibleTypes: ${JSON.stringify(possible)}` : "";
-    const hasArgs = field.args.length > 0 ? ", hasArgs: true" : "";
-    return `      ${JSON.stringify(field.name)}: { name: ${JSON.stringify(field.name)}, kind: ${JSON.stringify(kind)}${typeName}${abstract}${hasArgs} },`;
-  });
+  const fields = [
+    `      "__typename": { name: "__typename", kind: "scalar" },`,
+    ...(isObjectType(type) || isInterfaceType(type) ? Object.values(type.getFields()) : []).map(
+      (field) => {
+        const unwrapped = unwrapOutput(field.type);
+        const kind =
+          isListTypeLike(field.type) && isCompositeType(unwrapped)
+            ? "list"
+            : isCompositeType(unwrapped)
+              ? "entity"
+              : "scalar";
+        const typeName = isCompositeType(unwrapped)
+          ? `, typeName: ${JSON.stringify(unwrapped.name)}`
+          : "";
+        const possible =
+          schema && isCompositeType(unwrapped) ? possibleTypeNames(schema, unwrapped) : [];
+        const abstract =
+          possible.length > 0
+            ? `, isAbstract: true, possibleTypes: ${JSON.stringify(possible)}`
+            : "";
+        const hasArgs = field.args.length > 0 ? ", hasArgs: true" : "";
+        return `      ${JSON.stringify(field.name)}: { name: ${JSON.stringify(field.name)}, kind: ${JSON.stringify(kind)}${typeName}${abstract}${hasArgs} },`;
+      },
+    ),
+  ];
   const abstractMeta =
     possibleTypes.length > 0
       ? `,\n    isAbstract: true,\n    possibleTypes: ${JSON.stringify(possibleTypes)},\n    typeConditions: ${JSON.stringify(schema ? typeConditionNames(schema, type) : [])}`

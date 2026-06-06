@@ -103,6 +103,8 @@ describe("@gqlens/codegen", () => {
     const files = await generateFiles({ schema: testSchema });
     const invalidation = files["invalidation.ts"]!;
     expect(invalidation).toContain("export type InvalidationSpec");
+    expect(invalidation).toContain('import type { InvalidationTarget } from "@gqlens/core"');
+    expect(invalidation).toContain("EntityInvalidationSpec | InvalidationTarget");
     expect(invalidation).toContain('"name"');
     expect(invalidation).toContain('"avatar"');
     expect(invalidation).toContain('"title"');
@@ -153,6 +155,7 @@ describe("@gqlens/codegen", () => {
 
     expect(accessor).toContain("export interface NodeNode");
     expect(accessor).toContain("export interface PetNode");
+    expect(accessor).toContain("readonly __typename: string | undefined");
     expect(accessor).toContain("readonly $on: {");
     expect(accessor).toContain("readonly Cat: CatNode");
     expect(accessor).toContain("readonly Dog: DogNode");
@@ -166,6 +169,7 @@ describe("@gqlens/codegen", () => {
     expect(accessor).toContain(
       '"__typename": { returnsEntity: false, possibleTypes: ["Cat","Dog"] }',
     );
+    expect(accessor).toContain('"__typename": { name: "__typename", kind: "scalar" }');
     expect(accessor).toContain(
       '"search": { returnsEntity: true, graphQLType: "SearchResult", isAbstract: true, possibleTypes: ["User","Post"], returnsList: true, args: { "text": "String!" } }',
     );

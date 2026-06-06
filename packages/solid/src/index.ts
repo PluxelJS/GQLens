@@ -5,10 +5,12 @@ import {
   createLiveTransport,
   createNormalizedCache,
   createQuerySession,
+  applyInvalidations,
+  isInvalidationSpec,
   watchSignal,
   type AlienSignalReader,
   type Fetcher,
-  type InvalidationSpec,
+  type InvalidationInput,
   type LiveSubscriber,
   type MutationOperation,
   type NormalizedCache,
@@ -36,7 +38,7 @@ export interface SolidSessionState {
 
 interface MutationOptions {
   readonly optimistic?: ((cache: NormalizedCache) => void) | undefined;
-  readonly invalidates?: readonly InvalidationSpec[] | undefined;
+  readonly invalidates?: readonly InvalidationInput[] | undefined;
 }
 
 const defaultEndpoint = "/graphql";
@@ -133,12 +135,6 @@ export function createMutation<TInput extends Record<string, unknown>, TData>(
   };
 }
 
-function applyInvalidations(cache: NormalizedCache, specs: readonly InvalidationSpec[]): void {
-  for (const spec of specs) {
-    cache.invalidate(cache.entity(spec.type, spec.id), spec.keys);
-  }
-}
-
 function normalizeMutationResult(cache: NormalizedCache, data: unknown): void {
   if (isEntityObject(data)) {
     cache.normalize({ mutation: data });
@@ -219,10 +215,13 @@ function createSolidReaderScope(session: QuerySession): SolidReaderScope {
 
 function snapshotFields(
   cache: NormalizedCache,
-  specs: readonly InvalidationSpec[],
+  specs: readonly InvalidationInput[],
 ): Map<string, Record<string, unknown>> {
   const snapshots = new Map<string, Record<string, unknown>>();
   for (const spec of specs) {
+    if (!isInvalidationSpec(spec)) {
+      continue;
+    }
     if (!spec.keys || spec.keys.length === 0) {
       continue;
     }
@@ -238,10 +237,14 @@ function snapshotFields(
 
 function rollback(
   cache: NormalizedCache,
-  specs: readonly InvalidationSpec[],
+  specs: readonly InvalidationInput[],
   snapshots: ReadonlyMap<string, Record<string, unknown>>,
 ): void {
   for (const spec of specs) {
+    if (!isInvalidationSpec(spec)) {
+      applyInvalidations(cache, [spec]);
+      continue;
+    }
     const ref = cache.entity(spec.type, spec.id);
     const snapshot = snapshots.get(`${spec.type}:${spec.id}`);
     if (snapshot && spec.keys) {

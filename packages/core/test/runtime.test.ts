@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   createNormalizedCache,
   createSelectionCollector,
+  applyInvalidations,
   plan,
   createLiveQuerySession,
   createQuerySession,
@@ -939,6 +940,40 @@ describe("QuerySession", () => {
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Fresh Alice");
+  });
+
+  test("applyInvalidations handles selection targets and concrete root entity fields", () => {
+    const cache = createNormalizedCache();
+    const name = cache.field<string>(cache.entity("User", "1"), "name");
+    const refs = cache.slot<readonly { type: string; id: string }[]>(
+      'Query.search({"text":"a"}).refs',
+    );
+    name.sig("Alice");
+    refs.sig([{ type: "User", id: "1" }]);
+
+    applyInvalidations(
+      cache,
+      [
+        {
+          kind: "selection",
+          path: { root: "Query", steps: [{ field: "user", args: { id: "1" } }, { field: "name" }] },
+        },
+        {
+          kind: "selection",
+          path: {
+            root: "Query",
+            steps: [{ field: "search", args: { text: "a" } }, { field: "refs" }],
+          },
+        },
+      ],
+      {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    );
+
+    expect(name.expires).toBeLessThan(Date.now());
+    expect(refs.expires).toBeLessThan(Date.now());
   });
 
   test("invalidateRoot marks both ids and refs list identities stale", () => {

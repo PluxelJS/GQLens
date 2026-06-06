@@ -11,6 +11,7 @@ import {
 } from "@gqlens/core/codegen";
 
 interface QueryNode {
+  readonly __typename: string | undefined;
   readonly viewer: UserNode;
   user(args: { id: string }): UserNode;
   pet(args: { id: string }): PetNode;
@@ -20,11 +21,13 @@ interface QueryNode {
 }
 
 interface UserNode {
+  readonly __typename: string | undefined;
   readonly name: string | undefined;
   readonly posts: { readonly ids: readonly string[] | undefined };
 }
 
 interface PetNode {
+  readonly __typename: string | undefined;
   readonly name: string | undefined;
   readonly $on: {
     readonly Cat: CatNode;
@@ -33,11 +36,13 @@ interface PetNode {
 }
 
 interface CatNode {
+  readonly __typename: string | undefined;
   readonly name: string | undefined;
   readonly meows: boolean | undefined;
 }
 
 interface DogNode {
+  readonly __typename: string | undefined;
   readonly name: string | undefined;
   readonly barks: boolean | undefined;
 }
@@ -47,6 +52,7 @@ const schemaMeta: SchemaMeta = {
     type: "Query",
     identityKeys: ["id", "__typename"],
     fields: {
+      __typename: { name: "__typename", kind: "scalar" },
       viewer: { name: "viewer", kind: "entity", typeName: "User" },
       user: { name: "user", kind: "entity", typeName: "User", hasArgs: true },
       pet: { name: "pet", kind: "entity", typeName: "Pet", hasArgs: true, isAbstract: true },
@@ -64,6 +70,7 @@ const schemaMeta: SchemaMeta = {
       type: "User",
       identityKeys: ["id", "__typename"],
       fields: {
+        __typename: { name: "__typename", kind: "scalar" },
         name: { name: "name", kind: "scalar" },
         posts: { name: "posts", kind: "list", typeName: "Post" },
       },
@@ -74,6 +81,7 @@ const schemaMeta: SchemaMeta = {
       isAbstract: true,
       possibleTypes: ["Cat", "Dog"],
       fields: {
+        __typename: { name: "__typename", kind: "scalar" },
         name: { name: "name", kind: "scalar" },
       },
     },
@@ -81,6 +89,7 @@ const schemaMeta: SchemaMeta = {
       type: "Cat",
       identityKeys: ["id", "__typename"],
       fields: {
+        __typename: { name: "__typename", kind: "scalar" },
         name: { name: "name", kind: "scalar" },
         meows: { name: "meows", kind: "scalar" },
       },
@@ -89,6 +98,7 @@ const schemaMeta: SchemaMeta = {
       type: "Dog",
       identityKeys: ["id", "__typename"],
       fields: {
+        __typename: { name: "__typename", kind: "scalar" },
         name: { name: "name", kind: "scalar" },
         barks: { name: "barks", kind: "scalar" },
       },
@@ -148,6 +158,18 @@ describe("createAccessorNode", () => {
 
     expect(query.viewer.name).toBe("Alice");
     expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "name" }]]);
+  });
+
+  test("reads __typename through the same scalar accessor path", () => {
+    const cache = createNormalizedCache();
+    const demands: readonly SelectionStep[][] = [];
+    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+
+    expect(query.user({ id: "1" })["__typename"]).toBe("User");
+    expect(demands).toStrictEqual([
+      [{ field: "user", args: { id: "1" } }, { field: "__typename" }],
+    ]);
   });
 
   test("uses root id args as an entity resolver before a slot exists", () => {
@@ -332,6 +354,7 @@ describe("createAccessorNode", () => {
     );
 
     expect(path).toStrictEqual({
+      kind: "root",
       root: "Query",
       steps: [{ field: "user", args: { id: "1" } }, { field: "posts" }],
     });

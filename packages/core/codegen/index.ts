@@ -3,6 +3,7 @@ import type {
   AlienSignalReader,
   EntityRef,
   FieldSignal,
+  InvalidationTarget,
   NormalizedCache,
   PreparedSelection,
   PlannerMetadata,
@@ -303,16 +304,16 @@ export function defineInvalidation<TQuery extends object>(
   schema: SchemaMeta,
   queryMeta: EntityMeta,
   callback: (q: TQuery) => unknown,
-): SelectionPath {
+): InvalidationTarget {
   const paths: SelectionPath[] = [];
   const ctx = selectorContext(schema.query.type, paths);
   const query = createAccessorNode<TQuery>(ctx, schema, queryMeta);
   const result = callback(query);
   if (paths[0]) {
-    return paths[0];
+    return { kind: "selection", path: paths[0] };
   }
   const steps = accessorSteps(result);
-  return { root: schema.query.type, steps };
+  return { kind: "root", root: schema.query.type, steps };
 }
 
 function selectorContext(root: string, paths: SelectionPath[]): AccessorContext {

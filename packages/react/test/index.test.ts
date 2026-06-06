@@ -310,5 +310,62 @@ describe("React adapter", () => {
         "GQLens",
       ]);
     });
+
+    test("accepts selector invalidation targets in mutation options", async () => {
+      const fetcher = vi
+        .fn<Fetcher>()
+        .mockResolvedValueOnce({
+          user: { __typename: "User", id: "1", name: "Alice" },
+        })
+        .mockResolvedValueOnce({ renameUser: true })
+        .mockResolvedValueOnce({
+          user: { __typename: "User", id: "1", name: "Fresh Alice" },
+        });
+      const { result } = renderHook(
+        () => {
+          const state = useQuery({
+            policy: "cache-and-network",
+            metadata: {
+              roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+              types: { User: { name: { returnsEntity: false } } },
+            },
+          });
+          state.demand("Query", [{ field: "user", args: { id: "1" } }, { field: "name" }]);
+          const rename = useMutation({
+            operationName: "renameUser",
+            query: "mutation renameUser($id: ID!) { renameUser(id: $id) }",
+            variables: (input: { id: string }) => ({ id: input.id }),
+          });
+          return { state, rename };
+        },
+        { wrapper: wrapper({ fetcher }) },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
+          "Alice",
+        );
+      });
+
+      await result.current.rename({
+        id: "1",
+        invalidates: [
+          {
+            kind: "selection",
+            path: {
+              root: "Query",
+              steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+            },
+          },
+        ],
+      });
+
+      await waitFor(() => {
+        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
+          "Fresh Alice",
+        );
+      });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    });
   });
 });

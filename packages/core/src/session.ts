@@ -1,11 +1,12 @@
 import { createSelectionCollector, type ReaderHandle } from "./collector";
+import { applyInvalidations } from "./invalidation";
 import { relationSlotKey, slotKey, stepKey } from "./keys";
 import { plan } from "./planner";
 import { createSignal } from "./signal";
 import type {
   EntityRef,
   GraphQLResult,
-  InvalidationSpec,
+  InvalidationInput,
   NormalizedCache,
   PlannedSelectionPath,
   PlannedSelectionStep,
@@ -39,7 +40,7 @@ export interface QuerySession {
   readonly error: () => Error | null;
   schedule(): void;
   refetch(): void;
-  invalidate(specs: readonly InvalidationSpec[]): void;
+  invalidate(specs: readonly InvalidationInput[]): void;
   invalidateRoot(rootName: string, args?: Record<string, unknown>): void;
 }
 
@@ -162,8 +163,8 @@ export function createQuerySession(
       schedule(true);
     },
 
-    invalidate(specs: readonly InvalidationSpec[]): void {
-      applyInvalidations(cache, specs);
+    invalidate(specs: readonly InvalidationInput[]): void {
+      applyInvalidations(cache, specs, metadata);
       completed.clear();
       schedule(true);
     },
@@ -295,8 +296,8 @@ export function createLiveQuerySession(
       schedule(true);
     },
 
-    invalidate(specs: readonly InvalidationSpec[]): void {
-      applyInvalidations(cache, specs);
+    invalidate(specs: readonly InvalidationInput[]): void {
+      applyInvalidations(cache, specs, metadata);
       schedule(true);
     },
 
@@ -308,12 +309,6 @@ export function createLiveQuerySession(
       schedule(true);
     },
   };
-}
-
-function applyInvalidations(cache: NormalizedCache, specs: readonly InvalidationSpec[]): void {
-  for (const spec of specs) {
-    cache.invalidate(cache.entity(spec.type, spec.id), spec.keys);
-  }
 }
 
 function readGraphQLData(data: unknown): GraphQLResult {

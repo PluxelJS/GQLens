@@ -219,6 +219,29 @@ describe("Solid adapter", () => {
       expect(field.expires).toBe(0);
     });
 
+    test("accepts selector invalidation targets", async () => {
+      const cache = createNormalizedCache();
+      const refs = cache.slot<readonly { type: string; id: string }[]>(
+        'Query.search({"text":"a"}).refs',
+      );
+      refs.sig([{ type: "User", id: "1" }]);
+      const mutate = createMutation(async () => ({ ok: true }), cache);
+
+      await mutate({
+        invalidates: [
+          {
+            kind: "selection",
+            path: {
+              root: "Query",
+              steps: [{ field: "search", args: { text: "a" } }, { field: "refs" }],
+            },
+          },
+        ],
+      });
+
+      expect(refs.expires).toBeLessThan(Date.now());
+    });
+
     test("rolls back optimistic writes on error", async () => {
       const cache = createNormalizedCache();
       // Pre-populate cache

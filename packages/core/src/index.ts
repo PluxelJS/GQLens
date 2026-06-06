@@ -6,6 +6,7 @@ export type {
   FieldSignal,
   GraphQLOperation,
   GraphQLResult,
+  InvalidationInput,
   InvalidationTarget,
   InvalidationSpec,
   MutationOperation,
@@ -34,6 +35,7 @@ export {
 export { createNormalizedCache } from "./cache";
 export type { ReaderHandle, SelectionCollector } from "./collector";
 export { createSelectionCollector } from "./collector";
+export { applyInvalidations, isInvalidationSpec } from "./invalidation";
 export { plan } from "./planner";
 export type { QuerySession } from "./session";
 export { createLiveQuerySession, createQuerySession } from "./session";
