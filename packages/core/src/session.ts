@@ -83,7 +83,7 @@ export function createQuerySession(
       }
 
       const operation = plan(paths, "query", metadata);
-      const key = `${operation.query}\n${JSON.stringify(operation.variables)}`;
+      const key = operationKey(operation);
       if (
         !forced &&
         completed.has(key) &&
@@ -101,9 +101,7 @@ export function createQuerySession(
 
       fetcher(operation)
         .then((data) => {
-          const result = readGraphQLData(data);
-          cache.normalize(result, ttl);
-          syncSlots(cache, result, operation.selections, ttl, metadata);
+          writeOperationResult(cache, data, operation.selections, ttl, metadata);
           completed.add(key);
           return undefined;
         })
@@ -170,10 +168,7 @@ export function createQuerySession(
     },
 
     invalidateRoot(rootName: string, args?: Record<string, unknown>): void {
-      const rootStep: SelectionStep = { field: rootName, args };
-      cache.invalidateSlot(slotKey("Query", [rootStep]));
-      cache.invalidateSlot(slotKey("Query", [rootStep], "ids"));
-      cache.invalidateSlot(slotKey("Query", [rootStep], "refs"));
+      invalidateRootSlots(cache, rootName, args);
       completed.clear();
       schedule(true);
     },
@@ -215,7 +210,7 @@ export function createLiveQuerySession(
       }
 
       const operation = plan(paths, "query", metadata);
-      const key = `${operation.query}\n${JSON.stringify(operation.variables)}`;
+      const key = operationKey(operation);
       const forced = forceNext;
       forceNext = false;
       if (!forced && key === activeKey) {
@@ -231,9 +226,7 @@ export function createLiveQuerySession(
         unsubscribe = subscribe(
           operation,
           (data) => {
-            const result = readGraphQLData(data);
-            cache.normalize(result, ttl);
-            syncSlots(cache, result, operation.selections, ttl, metadata);
+            writeOperationResult(cache, data, operation.selections, ttl, metadata);
             loading(false);
           },
           (reason) => {
@@ -302,13 +295,37 @@ export function createLiveQuerySession(
     },
 
     invalidateRoot(rootName: string, args?: Record<string, unknown>): void {
-      const rootStep: SelectionStep = { field: rootName, args };
-      cache.invalidateSlot(slotKey("Query", [rootStep]));
-      cache.invalidateSlot(slotKey("Query", [rootStep], "ids"));
-      cache.invalidateSlot(slotKey("Query", [rootStep], "refs"));
+      invalidateRootSlots(cache, rootName, args);
       schedule(true);
     },
   };
+}
+
+function operationKey(operation: { readonly query: string; readonly variables: unknown }): string {
+  return `${operation.query}\n${JSON.stringify(operation.variables)}`;
+}
+
+function writeOperationResult(
+  cache: NormalizedCache,
+  data: unknown,
+  selections: readonly PlannedSelectionPath[],
+  ttl: number,
+  metadata: PlannerMetadata | undefined,
+): void {
+  const result = readGraphQLData(data);
+  cache.normalize(result, ttl);
+  syncSlots(cache, result, selections, ttl, metadata);
+}
+
+function invalidateRootSlots(
+  cache: NormalizedCache,
+  rootName: string,
+  args: Record<string, unknown> | undefined,
+): void {
+  const rootStep: SelectionStep = { field: rootName, args };
+  cache.invalidateSlot(slotKey("Query", [rootStep]));
+  cache.invalidateSlot(slotKey("Query", [rootStep], "ids"));
+  cache.invalidateSlot(slotKey("Query", [rootStep], "refs"));
 }
 
 function readGraphQLData(data: unknown): GraphQLResult {

@@ -2,6 +2,8 @@
 
 本文给零上下文 LLM / coding agent 使用。目标是在改代码前快速建立 GQLens 的实现地图和不可破坏的语义。
 
+先读本文件建立代码地图；如果需要判断“当前是否已经接入 runtime”，再读 [实现状态](./实现状态.md)。
+
 ## 项目目标
 
 GQLens 是一个 schema-generated accessor graph + normalized cache 的 GraphQL reactive runtime。
@@ -26,6 +28,7 @@ packages/core
   src/planner.ts        selection paths -> GraphQL operation
   src/session.ts        active demand + fetch/live scheduling
   src/invalidation.ts   invalidation helper
+  src/mutation.ts       shared mutation runner
   src/keys.ts           canonical path/slot keys
   src/collector.ts      per-reader selection collection
   src/transport.ts      default HTTP/live transport helpers
@@ -180,7 +183,23 @@ Cache policy：
 - selector target：失效对应 slot、`.ids`、`.refs`
 - 如果 selector target 是 concrete root `q.user({ id }).name`，且 metadata 能定位类型，也会失效 `User:id.name`
 
-React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。适配器应用 invalidation 后会 refetch active sessions。
+React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。mutation runner 会应用 invalidation；React provider 传入额外策略，在成功后 refetch active sessions。
+
+## Mutation Runner
+
+位置：`packages/core/src/mutation.ts`
+
+`createMutationRunner({ cache, mutation, fetcher, invalidate? })` 是 React/Solid 共享的 mutation 流程。
+
+职责：
+
+- 支持 operation descriptor 和 callback mutation。
+- operation descriptor 通过 fetcher 执行，并支持 GraphQL response envelope。
+- optimistic callback 直接操作 cache。
+- 成功后应用 invalidates，并 normalize server response。
+- 失败时按 snapshot rollback entity specs；selector targets 重新失效。
+
+框架适配器不应重新实现 snapshot / rollback / normalize 流程。React 只传入自定义 `invalidate`，用于 invalidation 后 refetch provider 内 active sessions；Solid 默认使用 core invalidation。
 
 ## Codegen
 
@@ -227,10 +246,9 @@ Solid：
 
 Mutation：
 
-- operation descriptor 通过 fetcher 执行。
-- server response normalize。
-- optimistic callback 直接操作 cache。
-- invalidates 成功后 apply + refetch；失败时按 snapshot rollback entity specs，selector targets 只重新失效。
+- 复用 `createMutationRunner()`。
+- React provider 给 runner 传入自定义 invalidate，以便成功后 refetch active sessions。
+- Solid 使用 runner 默认 invalidation。
 
 ## 不要做的事
 

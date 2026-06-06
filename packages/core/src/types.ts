@@ -106,3 +106,12 @@ export type InvalidationTarget =
   | { readonly kind: "root"; readonly root: string; readonly steps: readonly SelectionStep[] };
 
 export type InvalidationInput = InvalidationSpec | InvalidationTarget;
+
+export interface MutationOptions {
+  readonly optimistic?: ((cache: NormalizedCache) => void) | undefined;
+  readonly invalidates?: readonly InvalidationInput[] | undefined;
+}
+
+export type MutationSource<TInput extends Record<string, unknown>, TData> =
+  | ((input: TInput) => Promise<TData>)
+  | MutationOperation<TInput, TData>;

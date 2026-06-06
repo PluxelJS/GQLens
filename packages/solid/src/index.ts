@@ -3,16 +3,15 @@ import {
   createFetchTransport,
   createLiveQuerySession,
   createLiveTransport,
+  createMutationRunner,
   createNormalizedCache,
   createQuerySession,
-  applyInvalidations,
-  isInvalidationSpec,
   watchSignal,
   type AlienSignalReader,
   type Fetcher,
-  type InvalidationInput,
   type LiveSubscriber,
-  type MutationOperation,
+  type MutationOptions,
+  type MutationSource,
   type NormalizedCache,
   type QuerySession,
   type QuerySessionConfig,
@@ -34,11 +33,6 @@ export interface SolidSessionState {
   readonly cache: NormalizedCache;
   demand(root: string, steps: readonly SelectionStep[]): void;
   read<T>(sig: AlienSignalReader<T>): T;
-}
-
-interface MutationOptions {
-  readonly optimistic?: ((cache: NormalizedCache) => void) | undefined;
-  readonly invalidates?: readonly InvalidationInput[] | undefined;
 }
 
 const defaultEndpoint = "/graphql";
@@ -114,60 +108,7 @@ export function createMutation<TInput extends Record<string, unknown>, TData>(
   cache: NormalizedCache = createNormalizedCache(),
   fetcher: Fetcher = createFetchTransport(defaultEndpoint),
 ): (input: TInput & MutationOptions) => Promise<TData> {
-  const mutationFn = mutationFunction(mutation, fetcher);
-  return async (input: TInput & MutationOptions): Promise<TData> => {
-    const snapshots = input.optimistic
-      ? snapshotFields(cache, input.invalidates ?? [])
-      : new Map<string, Record<string, unknown>>();
-    input.optimistic?.(cache);
-
-    try {
-      const data = await mutationFn(input);
-      if (input.invalidates && input.invalidates.length > 0) {
-        applyInvalidations(cache, input.invalidates);
-      }
-      normalizeMutationResult(cache, data);
-      return data;
-    } catch (error) {
-      rollback(cache, input.invalidates ?? [], snapshots);
-      throw error;
-    }
-  };
-}
-
-function normalizeMutationResult(cache: NormalizedCache, data: unknown): void {
-  if (isEntityObject(data)) {
-    cache.normalize({ mutation: data });
-    return;
-  }
-  cache.normalize((data ?? {}) as Record<string, unknown>);
-}
-
-function isEntityObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && "__typename" in value && "id" in value;
-}
-
-type MutationSource<TInput extends Record<string, unknown>, TData> =
-  | ((input: TInput) => Promise<TData>)
-  | MutationOperation<TInput, TData>;
-
-function mutationFunction<TInput extends Record<string, unknown>, TData>(
-  mutation: MutationSource<TInput, TData>,
-  fetcher: Fetcher,
-): (input: TInput) => Promise<TData> {
-  if (typeof mutation === "function") {
-    return mutation;
-  }
-
-  return async (input: TInput): Promise<TData> => {
-    const data = (await fetcher({
-      query: mutation.query,
-      variables: mutation.variables(input),
-      operationName: mutation.operationName,
-      selections: [],
-    })) as Record<string, unknown>;
-    return (data[mutation.operationName] ?? data) as TData;
-  };
+  return createMutationRunner({ cache, mutation, fetcher });
 }
 
 interface SolidReaderScope {
@@ -211,48 +152,4 @@ function createSolidReaderScope(session: QuerySession): SolidReaderScope {
       session.unmount(reader);
     },
   };
-}
-
-function snapshotFields(
-  cache: NormalizedCache,
-  specs: readonly InvalidationInput[],
-): Map<string, Record<string, unknown>> {
-  const snapshots = new Map<string, Record<string, unknown>>();
-  for (const spec of specs) {
-    if (!isInvalidationSpec(spec)) {
-      continue;
-    }
-    if (!spec.keys || spec.keys.length === 0) {
-      continue;
-    }
-    const ref = cache.entity(spec.type, spec.id);
-    const values: Record<string, unknown> = {};
-    for (const key of spec.keys) {
-      values[key] = cache.field(ref, key).sig();
-    }
-    snapshots.set(`${spec.type}:${spec.id}`, values);
-  }
-  return snapshots;
-}
-
-function rollback(
-  cache: NormalizedCache,
-  specs: readonly InvalidationInput[],
-  snapshots: ReadonlyMap<string, Record<string, unknown>>,
-): void {
-  for (const spec of specs) {
-    if (!isInvalidationSpec(spec)) {
-      applyInvalidations(cache, [spec]);
-      continue;
-    }
-    const ref = cache.entity(spec.type, spec.id);
-    const snapshot = snapshots.get(`${spec.type}:${spec.id}`);
-    if (snapshot && spec.keys) {
-      for (const key of spec.keys) {
-        cache.field(ref, key).sig(snapshot[key]);
-      }
-    } else {
-      cache.invalidate(ref, spec.keys);
-    }
-  }
 }

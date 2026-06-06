@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   createNormalizedCache,
+  createMutationRunner,
   createSelectionCollector,
   applyInvalidations,
   plan,
@@ -1205,6 +1206,62 @@ describe("End-to-end: Plan → Fetch → Normalize → Read", () => {
 
     const post2Ref = cache.entity("Post", "11");
     expect(cache.field<string>(post2Ref, "title").sig()).toBe("Second post");
+  });
+});
+
+// ─── Mutation Runner ───────────────────────────────────────────────────────
+
+describe("Mutation runner", () => {
+  test("executes operation descriptors, unwraps GraphQL envelopes, and normalizes results", async () => {
+    const cache = createNormalizedCache();
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      data: { renameUser: { __typename: "User", id: "1", name: "Alice" } },
+    }));
+    const mutate = createMutationRunner({
+      cache,
+      fetcher,
+      mutation: {
+        operationName: "renameUser",
+        query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
+        variables: (input: { id: string }) => ({ id: input.id }),
+      },
+    });
+
+    await expect(mutate({ id: "1" })).resolves.toStrictEqual({
+      __typename: "User",
+      id: "1",
+      name: "Alice",
+    });
+    expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationName: "renameUser",
+        variables: { id: "1" },
+      }),
+    );
+  });
+
+  test("rolls back optimistic entity writes on failure", async () => {
+    const cache = createNormalizedCache();
+    cache.field(cache.entity("User", "1"), "name").sig("Original");
+    const mutate = createMutationRunner({
+      cache,
+      fetcher: async () => ({}),
+      mutation: async () => {
+        throw new Error("nope");
+      },
+    });
+
+    await expect(
+      mutate({
+        optimistic(c) {
+          c.field(c.entity("User", "1"), "name").sig("Optimistic");
+        },
+        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+      }),
+    ).rejects.toThrow("nope");
+
+    expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Original");
   });
 });
 
