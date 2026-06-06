@@ -205,6 +205,14 @@ React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。mu
 
 位置：`packages/codegen/src/accessor.ts`
 
+`accessor.ts` 由 `code-block-writer` 打印，避免手写字符串拼接生成块级 TypeScript。生成文件按固定 section 排列：
+
+- typed accessor nodes
+- schema metadata consumed by `@gqlens/core`
+- runtime entrypoints
+- static selector builders
+- mutation operation descriptors
+
 生成内容：
 
 - `QueryNode` 等 typed node interface。
