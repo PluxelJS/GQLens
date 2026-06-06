@@ -209,16 +209,19 @@ Planner 将一组 selection path 转换为 GraphQL operation。
 输出：合并后的 GraphQL operation
 ```
 
-| 职责                  | 说明                               |
-| --------------------- | ---------------------------------- |
-| field merge           | 将同一 root 下的字段合并为嵌套结构 |
-| args canonicalization | 统一参数序列化格式                 |
-| alias                 | 同字段不同 args 时自动生成别名     |
-| variable extraction   | 将内联参数提升为 `$var` 变量       |
-| operation name        | 生成稳定、确定性的 operation name  |
-| identity fields       | 自动补齐 `id` 和 `__typename`      |
+| 职责                  | 说明                                    |
+| --------------------- | --------------------------------------- |
+| field merge           | 将同一 root 下的字段合并为嵌套结构      |
+| args canonicalization | 统一参数序列化格式                      |
+| alias                 | 同字段不同 args 时自动生成别名          |
+| variable extraction   | 将内联参数提升为 `$var` 变量            |
+| inline fragment       | 将 `$on.<TypeCondition>` 渲染为类型分支 |
+| operation name        | 生成稳定、确定性的 operation name       |
+| identity fields       | 自动补齐 `id` 和 `__typename`           |
 
 Planner 的输入除了 selection path，还应包括 schema / codegen 元数据。它不应通过 JS 值猜测 GraphQL 类型，也不应在不知道返回类型的情况下盲目补 `id`。
+
+alias、fragment、directive 这类 GraphQL operation 语义属于 Planner / metadata 层。用户 accessor 只表达字段路径和 args；不得把 alias 命名、任意 directive 链、GraphQL document string 暴露成字段链 API。
 
 示例输入：
 

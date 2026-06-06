@@ -5,11 +5,11 @@
 缓存的主要单位是**实体字段**，而非整体对象。每个字段由一个 reactive signal 支撑。
 
 ```
-User:1.name      → Signal<string>
-User:1.avatar    → Signal<string | null>
-User:1.online    → Signal<boolean>
-Todo:9.title     → Signal<string>
-Todo:9.done      → Signal<boolean>
+User:1.name      → Signal<string | undefined>
+User:1.avatar    → Signal<string | null | undefined>
+User:1.online    → Signal<boolean | undefined>
+Todo:9.title     → Signal<string | undefined>
+Todo:9.done      → Signal<boolean | undefined>
 ```
 
 当数据写入 cache 时，只有对应字段的 signal 更新；只有读过该字段的组件才会收到通知。
@@ -17,12 +17,13 @@ Todo:9.done      → Signal<boolean>
 除了实体字段，cache 还需要保存 identity slot：
 
 ```
-Query.viewer                  → Ref<User:1>
-Query.todos(done:false).ids   → string[]
-User:1.posts(first:10).ids    → string[]
+Query.viewer                  → Ref<User:1> | null | undefined
+Query.todos(done:false).ids   → readonly string[] | undefined
+User:1.posts(first:10).ids    → readonly string[] | undefined
+Query.search(text:"x").refs   → readonly EntityRef[] | undefined
 ```
 
-slot 负责表达“这条 GraphQL 路径当前指向谁”；列表 identity 的公开读取值是稳定 ID 数组。实体字段负责表达“这个实体上的某个字段是什么值”。二者分离后，不同路径命中同一实体时才能自然共享字段更新。
+slot 负责表达“这条 GraphQL 路径当前指向谁”；列表 identity 的公开读取值是稳定 ID 数组或 entity ref 数组。实体字段负责表达“这个实体上的某个字段是什么值”。二者分离后，不同路径命中同一实体时才能自然共享字段更新。
 
 示例：服务端返回
 
@@ -70,12 +71,12 @@ post.author.avatar   → User:1.avatar
 
 ## 深层对象规则
 
-| JSON 结构                     | Cache 表现                      |
-| ----------------------------- | ------------------------------- |
-| 含 `id` + `__typename` 的对象 | entity reference                |
-| entity reference 列表         | slot 上的 ID 列表 signal        |
-| 标量字段                      | field signal                    |
-| 无 id 的嵌套 JSON             | 单个 field signal（不递归分解） |
+| JSON 结构                     | Cache 表现                           |
+| ----------------------------- | ------------------------------------ |
+| 含 `id` + `__typename` 的对象 | entity reference                     |
+| entity reference 列表         | slot 上的 `ids` / `refs` 列表 signal |
+| 标量字段                      | field signal                         |
+| 无 id 的嵌套 JSON             | 单个 field signal（不递归分解）      |
 
 不得将任意深层对象递归展开为 signal。
 

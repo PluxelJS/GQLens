@@ -1,4 +1,4 @@
-# 07. GQty 对照
+# GQty 对照
 
 GQLens 最初受 GQty 启发：不要手写 GraphQL query，而是让 UI 读取什么，客户端就收集什么 selection。这个方向是成立的，GQLens 不应把 GQty 当成反例。
 
@@ -18,15 +18,15 @@ GQty 和 GQLens 共享几个关键判断：
 
 ## 分歧轴
 
-| 设计轴         | GQty 路线                                         | GQLens 路线                                                               |
-| -------------- | ------------------------------------------------- | ------------------------------------------------------------------------- |
-| 字段模型       | 读 data proxy，运行时捕获访问                     | 读 schema-generated accessor，生成代码定义可访问边界                      |
-| selection 来源 | 与 cache/object proxy 交互时捕获                  | 读取 scalar 字段或列表 identity 时记录 path                               |
-| 对象关系       | 稳定 object/proxy reference 是主要体验            | 不把 entity object 暴露为响应式对象；公开 scalar value、accessor、ID 列表 |
-| 列表           | 像数组一样遍历 data proxy                         | 列表 identity 与行字段拆分，`ids` 是成员/顺序信号                         |
-| scope          | scoped query 防止不同上下文 selection 混合        | QuerySession 是显式合并边界，scope key 必须由配置决定                     |
-| Suspense / SSR | 需要 prepare 避免纯 render discovery 的额外轮次   | prepared selection / compiler extraction 必须成为可选正路                 |
-| live           | cache subscription 意义上所有 query 都是 reactive | reactive query 与 live transport 分开命名                                 |
+| 设计轴         | GQty 路线                                         | GQLens 路线                                                                     |
+| -------------- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 字段模型       | 读 data proxy，运行时捕获访问                     | 读 schema-generated accessor，生成代码定义可访问边界                            |
+| selection 来源 | 与 cache/object proxy 交互时捕获                  | 读取 scalar 字段或列表 identity 时记录 path                                     |
+| 对象关系       | 稳定 object/proxy reference 是主要体验            | 不把 entity object 暴露为响应式对象；公开 scalar value、accessor、identity 列表 |
+| 列表           | 像数组一样遍历 data proxy                         | 列表 identity 与行字段拆分；普通列表用 `ids`，abstract list 用 `refs`           |
+| scope          | scoped query 防止不同上下文 selection 混合        | QuerySession 是显式合并边界，scope key 必须由配置决定                           |
+| Suspense / SSR | 需要 prepare 避免纯 render discovery 的额外轮次   | prepared selection / compiler extraction 必须成为可选正路                       |
+| live           | cache subscription 意义上所有 query 都是 reactive | reactive query 与 live transport 分开命名                                       |
 
 ## GQLens 从 GQty 保留的洞见
 
