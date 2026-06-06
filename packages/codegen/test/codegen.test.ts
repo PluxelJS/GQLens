@@ -4,7 +4,11 @@ import { buildSchema } from "graphql";
 import { generateFiles } from "@gqlens/codegen";
 
 const testSchema = /* graphql */ `
-  type User {
+  interface Node {
+    id: ID!
+  }
+
+  type User implements Node {
     id: ID!
     name: String!
     avatar: String
@@ -12,7 +16,7 @@ const testSchema = /* graphql */ `
     posts: [Post!]!
   }
 
-  type Post {
+  type Post implements Node {
     id: ID!
     title: String!
     content: String!
@@ -27,11 +31,32 @@ const testSchema = /* graphql */ `
     author: User!
   }
 
+  interface Pet {
+    id: ID!
+    name: String!
+  }
+
+  type Cat implements Pet {
+    id: ID!
+    name: String!
+    meows: Boolean!
+  }
+
+  type Dog implements Pet {
+    id: ID!
+    name: String!
+    barks: Boolean!
+  }
+
+  union SearchResult = User | Post
+
   type Query {
     user(id: ID!): User
     viewer: User
     post(id: ID!): Post
     posts(first: Int, done: Boolean): [Post!]!
+    pet(id: ID!): Pet
+    search(text: String!): [SearchResult!]!
   }
 
   type Mutation {
@@ -50,13 +75,13 @@ describe("@gqlens/codegen", () => {
     const files = await generateFiles({ schema: testSchema });
     const types = files["types.ts"]!;
     // Codegen emits type aliases, Scalars map, and Maybe helpers.
-    expect(types).toContain("export type User = {");
+    expect(types).toContain("export type User =");
     expect(types).toContain("id: Scalars['ID']['output']");
     expect(types).toContain("name: Scalars['String']['output']");
     expect(types).toContain("avatar?: Maybe<Scalars['String']['output']>");
     expect(types).toContain("online: Scalars['Boolean']['output']");
     expect(types).toContain("posts: Array<Post>");
-    expect(types).toContain("export type Post = {");
+    expect(types).toContain("export type Post =");
     // Status enum is generated as a union type.
     expect(types).toContain("export type Status =");
     expect(types).toContain("'ACTIVE'");
@@ -91,7 +116,12 @@ describe("@gqlens/codegen", () => {
       'import { useGQLensSession, useLiveGQLensSession } from "@gqlens/react"',
     );
     expect(accessor).toContain('import type * as Types from "./types"');
-    expect(accessor).toContain('import { createAccessorNode } from "@gqlens/core/codegen"');
+    expect(accessor).toContain("createAccessorNode,");
+    expect(accessor).toContain("defineInvalidation as defineGQLensInvalidation");
+    expect(accessor).toContain("defineSelection as defineGQLensSelection");
+    expect(accessor).toContain(
+      'import type { EntityRef, MutationOperation, QuerySessionConfig } from "@gqlens/core"',
+    );
     expect(accessor).toContain("metadata: schemaMeta.planner");
     expect(accessor).toContain("planner:");
     expect(accessor).toContain('"id": "ID!"');
@@ -113,6 +143,32 @@ describe("@gqlens/codegen", () => {
     expect(accessor).not.toContain("Promise.resolve");
     expect(accessor).toContain("comment: {");
     expect(accessor).toContain("add:");
+    expect(accessor).toContain("export function defineSelection");
+    expect(accessor).toContain("export function defineInvalidation");
+  });
+
+  test("generates abstract accessors and planner metadata", async () => {
+    const files = await generateFiles({ schema: testSchema });
+    const accessor = files["accessor.ts"]!;
+
+    expect(accessor).toContain("export interface NodeNode");
+    expect(accessor).toContain("export interface PetNode");
+    expect(accessor).toContain("readonly $on: {");
+    expect(accessor).toContain("readonly Cat: CatNode");
+    expect(accessor).toContain("readonly Dog: DogNode");
+    expect(accessor).toContain("readonly Node: NodeNode");
+    expect(accessor).toContain(
+      "search: (args: Types.QuerySearchArgs) => { readonly refs: readonly EntityRef[] | undefined }",
+    );
+    expect(accessor).toContain('isAbstract: true, possibleTypes: ["Cat","Dog"]');
+    expect(accessor).toContain('isAbstract: true, possibleTypes: ["User","Post"]');
+    expect(accessor).toContain('typeConditions: ["User","Post","Node"]');
+    expect(accessor).toContain(
+      '"__typename": { returnsEntity: false, possibleTypes: ["Cat","Dog"] }',
+    );
+    expect(accessor).toContain(
+      '"search": { returnsEntity: true, graphQLType: "SearchResult", isAbstract: true, possibleTypes: ["User","Post"], returnsList: true, args: { "text": "String!" } }',
+    );
   });
 
   test("uses the same args type names as GraphQL Code Generator", async () => {
@@ -152,7 +208,7 @@ describe("@gqlens/codegen", () => {
       schema: buildSchema(testSchema),
     });
 
-    expect(files["types.ts"]).toContain("export type User = {");
+    expect(files["types.ts"]).toContain("export type User =");
     expect(files["accessor.ts"]).toContain("export function useQuery");
   });
 

@@ -126,6 +126,7 @@ function normalizeValue(
       refs.map((ref) => ref.id),
       expires,
     );
+    writeEntry(slots, `${slotKey}.refs`, refs, expires);
     writeEntry(slots, slotKey, refs, expires);
     return refs;
   }
@@ -143,10 +144,15 @@ function normalizeValue(
 }
 
 function clearSlotIds(slots: Map<string, FieldEntry>, slotKey: string): void {
-  const ids = slots.get(`${slotKey}.ids`);
-  if (ids) {
-    ids.sig(undefined);
-    ids.expires = 0;
+  clearSlotSuffix(slots, slotKey, "ids");
+  clearSlotSuffix(slots, slotKey, "refs");
+}
+
+function clearSlotSuffix(slots: Map<string, FieldEntry>, slotKey: string, suffix: string): void {
+  const entry = slots.get(`${slotKey}.${suffix}`);
+  if (entry) {
+    entry.sig(undefined);
+    entry.expires = 0;
   }
 }
 

@@ -6,9 +6,11 @@ export type {
   FieldSignal,
   GraphQLOperation,
   GraphQLResult,
+  InvalidationTarget,
   InvalidationSpec,
   MutationOperation,
   NormalizedCache,
+  PreparedSelection,
   PlannedSelectionPath,
   PlannedSelectionStep,
   PlannerFieldMetadata,
@@ -17,10 +19,18 @@ export type {
   SelectionPath,
   SelectionStep,
   SlotValue,
+  VariablePlaceholder,
 } from "./types";
 
 export { createSignal, watchSignal } from "./signal";
-export { canonicalJSON, relationSlotKey, selectionKey, slotKey, stepKey } from "./keys";
+export {
+  canonicalJSON,
+  isVariablePlaceholder,
+  relationSlotKey,
+  selectionKey,
+  slotKey,
+  stepKey,
+} from "./keys";
 export { createNormalizedCache } from "./cache";
 export type { ReaderHandle, SelectionCollector } from "./collector";
 export { createSelectionCollector } from "./collector";

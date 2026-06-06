@@ -102,7 +102,7 @@ export function createQuerySession(
         .then((data) => {
           const result = readGraphQLData(data);
           cache.normalize(result, ttl);
-          syncSlots(cache, result, operation.selections, ttl);
+          syncSlots(cache, result, operation.selections, ttl, metadata);
           completed.add(key);
           return undefined;
         })
@@ -172,6 +172,7 @@ export function createQuerySession(
       const rootStep: SelectionStep = { field: rootName, args };
       cache.invalidateSlot(slotKey("Query", [rootStep]));
       cache.invalidateSlot(slotKey("Query", [rootStep], "ids"));
+      cache.invalidateSlot(slotKey("Query", [rootStep], "refs"));
       completed.clear();
       schedule(true);
     },
@@ -231,7 +232,7 @@ export function createLiveQuerySession(
           (data) => {
             const result = readGraphQLData(data);
             cache.normalize(result, ttl);
-            syncSlots(cache, result, operation.selections, ttl);
+            syncSlots(cache, result, operation.selections, ttl, metadata);
             loading(false);
           },
           (reason) => {
@@ -303,6 +304,7 @@ export function createLiveQuerySession(
       const rootStep: SelectionStep = { field: rootName, args };
       cache.invalidateSlot(slotKey("Query", [rootStep]));
       cache.invalidateSlot(slotKey("Query", [rootStep], "ids"));
+      cache.invalidateSlot(slotKey("Query", [rootStep], "refs"));
       schedule(true);
     },
   };
@@ -334,7 +336,7 @@ function isPathFresh(
     return false;
   }
 
-  if (last.field === "ids") {
+  if (isListIdentityStep(last)) {
     return isListPathFresh(cache, path, metadata);
   }
 
@@ -354,12 +356,13 @@ function syncSlots(
   data: GraphQLResult,
   paths: readonly PlannedSelectionPath[],
   ttl: number,
+  metadata: PlannerMetadata | undefined,
 ): void {
   const expires = ttl > 0 ? Date.now() + ttl : 0;
   const seen = new Set<string>();
 
   for (const path of paths) {
-    syncPathSlots(cache, data, path, expires, seen);
+    syncPathSlots(cache, data, path, expires, seen, metadata);
   }
 }
 
@@ -369,22 +372,31 @@ function syncPathSlots(
   path: PlannedSelectionPath,
   expires: number,
   seen: Set<string>,
+  metadata: PlannerMetadata | undefined,
 ): void {
   let current: unknown = data;
   const originalSteps: PlannedSelectionStep[] = [];
 
   for (const [index, step] of path.steps.entries()) {
     originalSteps.push(step);
-    if (step.field === "ids") {
+    if (isListIdentityStep(step)) {
       continue;
     }
     if (!isRecord(current)) {
       return;
     }
 
+    if (step.typeCondition) {
+      if (!matchesTypeCondition(current, step.typeCondition, metadata)) {
+        return;
+      }
+      continue;
+    }
+
     const parentRef = isEntity(current) ? entityFrom(current) : undefined;
     current = current[step.responseKey ?? step.field];
-    const normalized = toSlotValue(current, path.steps[index + 1]?.field === "ids");
+    const nextStep = path.steps[index + 1];
+    const normalized = toSlotValue(current, isListIdentityStep(nextStep));
     if (normalized === undefined) {
       continue;
     }
@@ -401,24 +413,42 @@ function syncPathSlots(
     slot.expires = expires;
 
     if (Array.isArray(normalized)) {
-      const idsSlot = cache.slot<readonly string[]>(slotKey(path.root, steps, "ids"));
-      idsSlot.sig(normalized.map((ref) => ref.id));
-      idsSlot.expires = expires;
+      const identityStep = path.steps[index + 1];
+      if (identityStep?.field === "refs") {
+        const refsSlot = cache.slot<readonly EntityRef[]>(slotKey(path.root, steps, "refs"));
+        refsSlot.sig(normalized);
+        refsSlot.expires = expires;
+        clearSlotSuffix(cache, key, "ids");
+      } else {
+        const idsSlot = cache.slot<readonly string[]>(slotKey(path.root, steps, "ids"));
+        idsSlot.sig(normalized.map((ref) => ref.id));
+        idsSlot.expires = expires;
+        clearSlotSuffix(cache, key, "refs");
+      }
       writeRelationSlot(cache, parentRef, step, normalized, expires);
-      writeRelationSlot(
-        cache,
-        parentRef,
-        step,
-        normalized.map((ref) => ref.id),
-        expires,
-        "ids",
-      );
+      if (identityStep?.field === "refs") {
+        writeRelationSlot(cache, parentRef, step, normalized, expires, "refs");
+        clearRelationSlotSuffix(cache, parentRef, step, "ids");
+      } else {
+        writeRelationSlot(
+          cache,
+          parentRef,
+          step,
+          normalized.map((ref) => ref.id),
+          expires,
+          "ids",
+        );
+        clearRelationSlotSuffix(cache, parentRef, step, "refs");
+      }
     } else if (normalized && "type" in normalized && parentRef) {
-      clearSlotIds(cache, key);
+      clearSlotSuffix(cache, key, "ids");
+      clearSlotSuffix(cache, key, "refs");
       writeRelationSlot(cache, parentRef, step, normalized, expires);
     } else {
-      clearSlotIds(cache, key);
-      clearRelationSlotIds(cache, parentRef, step);
+      clearSlotSuffix(cache, key, "ids");
+      clearSlotSuffix(cache, key, "refs");
+      clearRelationSlotSuffix(cache, parentRef, step, "ids");
+      clearRelationSlotSuffix(cache, parentRef, step, "refs");
     }
   }
 }
@@ -439,18 +469,19 @@ function writeRelationSlot(
   slot.expires = expires;
 }
 
-function clearRelationSlotIds(
+function clearRelationSlotSuffix(
   cache: NormalizedCache,
   ref: EntityRef | undefined,
   step: SelectionStep,
+  suffix: string,
 ): void {
   if (ref) {
-    clearSlotIds(cache, relationSlotKey(ref, step));
+    clearSlotSuffix(cache, relationSlotKey(ref, step), suffix);
   }
 }
 
-function clearSlotIds(cache: NormalizedCache, key: string): void {
-  const slot = cache.slot<readonly string[] | undefined>(`${key}.ids`);
+function clearSlotSuffix(cache: NormalizedCache, key: string, suffix: string): void {
+  const slot = cache.slot<unknown>(`${key}.${suffix}`);
   slot.sig(undefined);
   slot.expires = 0;
 }
@@ -492,13 +523,14 @@ function isListPathFresh(
   metadata: PlannerMetadata | undefined,
 ): boolean {
   const relationStep = path.steps[path.steps.length - 2];
+  const identityStep = path.steps[path.steps.length - 1];
   if (!relationStep) {
     return false;
   }
 
   const relationSteps = path.steps.slice(0, -1);
   if (relationSteps.length === 1) {
-    return isListSlotFresh(cache, slotKey(path.root, relationSteps));
+    return isListSlotFresh(cache, slotKey(path.root, relationSteps), identityStep?.field);
   }
 
   const owner = resolveOwnerForSteps(cache, path.root, relationSteps.slice(0, -1), metadata);
@@ -506,7 +538,7 @@ function isListPathFresh(
     return owner.fresh;
   }
   return owner.value && owner.fresh
-    ? isListSlotFresh(cache, relationSlotKey(owner.value, relationStep))
+    ? isListSlotFresh(cache, relationSlotKey(owner.value, relationStep), identityStep?.field)
     : false;
 }
 
@@ -530,6 +562,13 @@ function resolveOwnerForSteps(
 
   for (const step of steps) {
     walked.push(step);
+
+    if (step.typeCondition) {
+      if (!ref || !matchesRefTypeCondition(ref, step.typeCondition, metadata)) {
+        return { value: null, fresh };
+      }
+      continue;
+    }
 
     if (!ref) {
       const rootSlot = readSlot<EntityRef | null>(cache, slotKey(root, walked));
@@ -566,10 +605,19 @@ function resolveOwnerForSteps(
   return ref ? { value: ref, fresh } : { value: undefined, fresh: false };
 }
 
-function isListSlotFresh(cache: NormalizedCache, key: string): boolean {
-  const ids = readSlot<readonly string[]>(cache, `${key}.ids`);
-  if (ids.value !== undefined) {
-    return ids.fresh;
+function isListSlotFresh(
+  cache: NormalizedCache,
+  key: string,
+  identityField: string | undefined,
+): boolean {
+  if (identityField === "refs") {
+    const refs = readSlot<readonly EntityRef[]>(cache, `${key}.refs`);
+    return refs.value !== undefined ? refs.fresh : false;
+  }
+
+  if (identityField === "ids") {
+    const ids = readSlot<readonly string[]>(cache, `${key}.ids`);
+    return ids.value !== undefined ? ids.fresh : false;
   }
 
   const relation = readSlot<readonly EntityRef[] | null>(cache, key);
@@ -591,4 +639,36 @@ function isFreshEntry(entry: { readonly expires: number }): boolean {
 
 function cacheFieldKey(step: SelectionStep): string {
   return stepKey(step);
+}
+
+function isListIdentityStep(step: SelectionStep | undefined): boolean {
+  return step?.field === "ids" || step?.field === "refs";
+}
+
+function matchesTypeCondition(
+  value: Record<string, unknown>,
+  typeCondition: string,
+  metadata: PlannerMetadata | undefined,
+): boolean {
+  const typename = value["__typename"];
+  if (typename === typeCondition) {
+    return true;
+  }
+  if (typeof typename !== "string") {
+    return false;
+  }
+  return (
+    metadata?.types?.[typeCondition]?.["__typename"]?.possibleTypes?.includes(typename) ?? false
+  );
+}
+
+function matchesRefTypeCondition(
+  ref: EntityRef,
+  typeCondition: string,
+  metadata: PlannerMetadata | undefined,
+): boolean {
+  return (
+    ref.type === typeCondition ||
+    (metadata?.types?.[typeCondition]?.["__typename"]?.possibleTypes?.includes(ref.type) ?? false)
+  );
 }

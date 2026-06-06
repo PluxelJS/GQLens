@@ -15,6 +15,10 @@ export interface EntityRef {
 
 export type SlotValue = EntityRef | readonly EntityRef[] | readonly string[] | null | undefined;
 
+export interface VariablePlaceholder {
+  readonly __gqlensVariable: string;
+}
+
 export interface NormalizedCache {
   field<T = unknown>(ref: EntityRef, key: string): FieldSignal<T>;
   slot<T = SlotValue>(key: string): FieldSignal<T>;
@@ -34,6 +38,7 @@ export interface SelectionPath {
 export interface SelectionStep {
   readonly field: string;
   readonly args?: Record<string, unknown> | undefined;
+  readonly typeCondition?: string | undefined;
 }
 
 export type CachePolicy = "cache-first" | "cache-and-network" | "network-only";
@@ -71,6 +76,8 @@ export interface PlannerFieldMetadata {
   readonly graphQLType?: string | undefined;
   readonly returnsEntity?: boolean | undefined;
   readonly returnsList?: boolean | undefined;
+  readonly isAbstract?: boolean | undefined;
+  readonly possibleTypes?: readonly string[] | undefined;
   readonly args?: Readonly<Record<string, string>> | undefined;
 }
 
@@ -88,3 +95,12 @@ export type InvalidationSpec = {
   readonly id: string;
   readonly keys?: readonly string[] | undefined;
 };
+
+export interface PreparedSelection {
+  readonly paths: readonly SelectionPath[];
+  readonly variables: readonly string[];
+}
+
+export type InvalidationTarget =
+  | { readonly kind: "selection"; readonly path: SelectionPath }
+  | { readonly kind: "root"; readonly root: string; readonly steps: readonly SelectionStep[] };

@@ -7,6 +7,7 @@ import {
   createQuerySession,
   createFetchTransport,
   type SelectionPath,
+  type SelectionStep,
   type GraphQLOperation,
   type Fetcher,
   type LiveSubscriber,
@@ -19,7 +20,7 @@ const makePath = (root: string, steps: string[]): SelectionPath => ({
   steps: steps.map((s) => ({ field: s })),
 });
 
-const p = (steps: { field: string; args?: Record<string, unknown> }[]): SelectionPath => ({
+const p = (steps: SelectionStep[]): SelectionPath => ({
   root: "Query",
   steps,
 });
@@ -92,6 +93,10 @@ describe("NormalizedCache", () => {
     expect(cache.field<string>(cache.entity("Todo", "1"), "title").sig()).toBe("Buy milk");
     expect(cache.field<boolean>(cache.entity("Todo", "2"), "done").sig()).toBe(true);
     expect(cache.slot("Query.todos.ids").sig()).toStrictEqual(["1", "2"]);
+    expect(cache.slot("Query.todos.refs").sig()).toStrictEqual([
+      { type: "Todo", id: "1" },
+      { type: "Todo", id: "2" },
+    ]);
   });
 
   test("normalize writes root identity slots", () => {
@@ -430,6 +435,73 @@ describe("Planner", () => {
     expect(op.query).not.toContain("ids");
   });
 
+  test("treats abstract list refs as an accessor pseudo-field", () => {
+    const op = plan(
+      [p([{ field: "search", args: { text: "milk" } }, { field: "refs" }])],
+      "query",
+      {
+        roots: {
+          search: {
+            returnsEntity: true,
+            returnsList: true,
+            graphQLType: "SearchResult",
+            isAbstract: true,
+            possibleTypes: ["User", "Post"],
+            args: { text: "String!" },
+          },
+        },
+      },
+    );
+
+    expect(op.query).toContain("search(text:");
+    expect(op.query).toContain("__typename");
+    expect(op.query).toContain("... on Post");
+    expect(op.query).toContain("... on User");
+    expect(op.query).not.toContain("refs");
+  });
+
+  test("renders inline fragments from $on steps", () => {
+    const op = plan(
+      [
+        p([
+          { field: "pet", args: { id: "1" } },
+          { field: "$on", typeCondition: "Cat" },
+          { field: "meows" },
+        ]),
+      ],
+      "query",
+      {
+        roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
+        types: {
+          Pet: { __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] } },
+          Cat: { meows: { returnsEntity: false } },
+        },
+      },
+    );
+
+    expect(op.query).toContain("pet(id:");
+    expect(op.query).toContain("... on Cat");
+    expect(op.query).toContain("meows");
+    expect(op.query).not.toContain("$on");
+    expect(op.selections[0]?.steps[1]?.responseKey).toBeUndefined();
+    expect(op.selections[0]?.steps[2]?.responseKey).toBe("meows");
+  });
+
+  test("uses named variable placeholders without concrete values", () => {
+    const op = plan(
+      [p([{ field: "user", args: { id: { __gqlensVariable: "id" } } }, { field: "name" }])],
+      "query",
+      {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      },
+    );
+
+    expect(op.query).toContain("user(id: $id)");
+    expect(op.query).toContain("$id: ID!");
+    expect(op.variables).toStrictEqual({});
+  });
+
   test("records response aliases for planned selections", () => {
     const op = plan([
       p([{ field: "user", args: { id: "1" } }, { field: "name" }]),
@@ -595,6 +667,47 @@ describe("QuerySession", () => {
     expect(cache.slot("Query.todos.ids").sig()).toStrictEqual([]);
   });
 
+  test("schedule writes abstract list refs when refs are selected", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(
+      cache,
+      async () => ({
+        search: [
+          { __typename: "User", id: "1", name: "Alice" },
+          { __typename: "Post", id: "10", title: "Hello" },
+        ],
+      }),
+      {
+        metadata: {
+          roots: {
+            search: {
+              returnsEntity: true,
+              returnsList: true,
+              graphQLType: "SearchResult",
+              isAbstract: true,
+              possibleTypes: ["User", "Post"],
+              args: { text: "String!" },
+            },
+          },
+        },
+      },
+    );
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [{ field: "search", args: { text: "hello" } }, { field: "refs" }],
+    });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.slot('Query.search({"text":"hello"}).refs').sig()).toStrictEqual([
+      { type: "User", id: "1" },
+      { type: "Post", id: "10" },
+    ]);
+    expect(cache.slot('Query.search({"text":"hello"}).ids').sig()).toBeUndefined();
+  });
+
   test("schedule clears stale list ids when selected list becomes null", async () => {
     const cache = createNormalizedCache();
     const fetcher = vi
@@ -633,6 +746,36 @@ describe("QuerySession", () => {
     session.select(reader, {
       root: "Query",
       steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+    });
+    session.schedule();
+    await nextMicrotask();
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  test("cache-first treats non-matching inline fragments as fresh once the owner type is known", async () => {
+    const cache = createNormalizedCache();
+    cache.normalize({ pet: { __typename: "Dog", id: "2", barks: true } });
+    const fetcher = vi.fn<Fetcher>(async () => ({}));
+    const session = createQuerySession(cache, fetcher, {
+      policy: "cache-first",
+      metadata: {
+        roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
+        types: {
+          Pet: { __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] } },
+          Cat: { meows: { returnsEntity: false } },
+        },
+      },
+    });
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [
+        { field: "pet", args: { id: "2" } },
+        { field: "$on", typeCondition: "Cat" },
+        { field: "meows" },
+      ],
     });
     session.schedule();
     await nextMicrotask();
@@ -798,6 +941,22 @@ describe("QuerySession", () => {
     expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Fresh Alice");
   });
 
+  test("invalidateRoot marks both ids and refs list identities stale", () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(cache, async () => ({}));
+    const ids = cache.slot<readonly string[]>('Query.search({"text":"hello"}).ids');
+    const refs = cache.slot<readonly { type: string; id: string }[]>(
+      'Query.search({"text":"hello"}).refs',
+    );
+    ids.sig(["1"]);
+    refs.sig([{ type: "User", id: "1" }]);
+
+    session.invalidateRoot("search", { text: "hello" });
+
+    expect(ids.expires).toBeLessThan(Date.now());
+    expect(refs.expires).toBeLessThan(Date.now());
+  });
+
   test("live session streams repeated patches into cache", async () => {
     const cache = createNormalizedCache();
     const listeners: Array<(data: unknown) => void> = [];
@@ -882,6 +1041,38 @@ describe("QuerySession", () => {
     await nextMacrotask();
 
     expect(cache.slot('User:1.posts({"first":5}).ids').sig()).toStrictEqual(["10", "11"]);
+  });
+
+  test("schedule syncs matching inline fragment fields through normalized entities", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(
+      cache,
+      async () => ({ pet: { __typename: "Cat", id: "1", meows: true } }),
+      {
+        metadata: {
+          roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
+          types: {
+            Pet: { __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] } },
+            Cat: { meows: { returnsEntity: false } },
+          },
+        },
+      },
+    );
+    const reader = session.mount();
+
+    session.select(reader, {
+      root: "Query",
+      steps: [
+        { field: "pet", args: { id: "1" } },
+        { field: "$on", typeCondition: "Cat" },
+        { field: "meows" },
+      ],
+    });
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.slot('Query.pet({"id":"1"})').sig()).toStrictEqual({ type: "Cat", id: "1" });
+    expect(cache.field<boolean>(cache.entity("Cat", "1"), "meows").sig()).toBe(true);
   });
 
   test("loading stays true until every in-flight operation settles", async () => {

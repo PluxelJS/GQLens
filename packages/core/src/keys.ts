@@ -1,4 +1,4 @@
-import type { EntityRef, SelectionPath, SelectionStep } from "./types";
+import type { EntityRef, SelectionPath, SelectionStep, VariablePlaceholder } from "./types";
 
 export function selectionKey(path: SelectionPath): string {
   return `${path.root}.${stepsKey(path.steps)}`;
@@ -15,6 +15,9 @@ export function relationSlotKey(ref: EntityRef, step: SelectionStep, suffix?: st
 }
 
 export function stepKey(step: SelectionStep): string {
+  if (step.typeCondition) {
+    return `$on(${step.typeCondition})`;
+  }
   if (!step.args || Object.keys(step.args).length === 0) {
     return step.field;
   }
@@ -22,6 +25,9 @@ export function stepKey(step: SelectionStep): string {
 }
 
 export function canonicalJSON(value: unknown): string {
+  if (isVariablePlaceholder(value)) {
+    return `$${value["__gqlensVariable"]}`;
+  }
   if (Array.isArray(value)) {
     return `[${value.map(canonicalJSON).join(",")}]`;
   }
@@ -36,4 +42,13 @@ export function canonicalJSON(value: unknown): string {
 
 function stepsKey(steps: readonly SelectionStep[]): string {
   return steps.map(stepKey).join(".");
+}
+
+export function isVariablePlaceholder(value: unknown): value is VariablePlaceholder {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "__gqlensVariable" in value &&
+    typeof value["__gqlensVariable"] === "string"
+  );
 }

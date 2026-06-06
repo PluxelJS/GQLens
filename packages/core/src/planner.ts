@@ -1,4 +1,4 @@
-import { canonicalJSON, stepKey } from "./keys";
+import { canonicalJSON, isVariablePlaceholder, stepKey } from "./keys";
 import type {
   GraphQLOperation,
   PlannedSelectionPath,
@@ -92,6 +92,21 @@ function renderNode(
   indent: number,
 ): string {
   const pad = "  ".repeat(indent);
+  if (node.step.typeCondition) {
+    const children = [...node.children.values()];
+    const childLines = renderNodes(
+      children,
+      variables,
+      metadata,
+      node.step.typeCondition,
+      indent + 1,
+    );
+    childLines.push(`${"  ".repeat(indent + 1)}id`);
+    childLines.push(`${"  ".repeat(indent + 1)}__typename`);
+    const uniqueChildren = [...new Set(childLines)].toSorted();
+    return `${pad}... on ${node.step.typeCondition} {\n${uniqueChildren.join("\n")}\n${pad}}`;
+  }
+
   const prefix = alias ? `${alias}: ` : "";
   const fieldMeta = parentType
     ? metadata?.types?.[parentType]?.[node.step.field]
@@ -103,9 +118,17 @@ function renderNode(
     return `${pad}${prefix}${node.step.field}${args}`;
   }
 
-  const children = [...node.children.values()].filter((child) => child.step.field !== "ids");
+  const identityField = [...node.children.values()].find((child) => isListIdentityStep(child.step));
+  const children = [...node.children.values()].filter((child) => !isListIdentityStep(child.step));
   const childLines = renderNodes(children, variables, metadata, childType, indent + 1);
-  if (fieldMeta?.returnsEntity !== false) {
+  if (fieldMeta?.isAbstract && identityField?.step.field === "refs") {
+    childLines.push(`${"  ".repeat(indent + 1)}__typename`);
+    for (const type of fieldMeta.possibleTypes ?? []) {
+      childLines.push(
+        `${"  ".repeat(indent + 1)}... on ${type} {\n${"  ".repeat(indent + 2)}id\n${"  ".repeat(indent + 1)}}`,
+      );
+    }
+  } else if (fieldMeta?.returnsEntity !== false) {
     childLines.push(`${"  ".repeat(indent + 1)}id`);
     childLines.push(`${"  ".repeat(indent + 1)}__typename`);
   }
@@ -171,6 +194,17 @@ function createVariableRegistry(): VariableRegistry {
     values,
 
     name(value: unknown, type: string | undefined): string {
+      if (isVariablePlaceholder(value)) {
+        const name = value["__gqlensVariable"];
+        const key = `${type ?? ""}:$${name}`;
+        const existing = entries.get(key);
+        if (existing) {
+          return existing.name;
+        }
+        entries.set(key, { name, value, type });
+        return name;
+      }
+
       const key = `${type ?? ""}:${canonicalJSON(value)}`;
       const existing = entries.get(key);
       if (existing) {
@@ -195,6 +229,9 @@ function variableType(entry: VariableEntry, metadata: PlannerMetadata | undefine
     return entry.type;
   }
   const value = entry.value;
+  if (isVariablePlaceholder(value)) {
+    return "String";
+  }
   if (typeof value === "number") {
     return Number.isInteger(value) ? "Int" : "Float";
   }
@@ -211,7 +248,15 @@ function collectPlannedPaths(
   return paths.map((path) => {
     let siblings = tree;
     const steps = path.steps.map((step) => {
-      if (step.field === "ids") {
+      if (isListIdentityStep(step)) {
+        return { ...step, responseKey: undefined };
+      }
+
+      if (step.typeCondition) {
+        const node = siblings.get(stepKey(step));
+        if (node) {
+          siblings = node.children;
+        }
         return { ...step, responseKey: undefined };
       }
 
@@ -225,4 +270,8 @@ function collectPlannedPaths(
 
     return { root: path.root, steps };
   });
+}
+
+function isListIdentityStep(step: SelectionStep): boolean {
+  return step.field === "ids" || step.field === "refs";
 }
