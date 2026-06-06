@@ -3,9 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "codegen": "tsx tooling/generate-gqlens.ts",
+    "dev": "npm run codegen && GRAPHQL_PROXY_TARGET=http://127.0.0.1:4000 vite",
+    "dev:client": "npm run codegen && GRAPHQL_PROXY_TARGET=http://127.0.0.1:4000 vite",
+    "dev:server": "tsx src/server/prod.ts",
+    "build": "npm run codegen && vite build",
+    "typecheck": "npm run codegen && tsc --noEmit",
+    "test": "npm run codegen && tsx src/test/frontend-contract.ts && tsx src/test/smoke.ts",
+    "verify": "npm run codegen && tsc --noEmit && tsx src/test/frontend-contract.ts && tsx src/test/smoke.ts && vite build",
     "server": "tsx src/server/prod.ts"
   },
   "dependencies": {

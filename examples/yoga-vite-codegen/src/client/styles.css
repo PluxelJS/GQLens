@@ -1,0 +1,177 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: #1f2933;
+  background: #eef2f3;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #284b63;
+  border-radius: 6px;
+  background: #284b63;
+  color: white;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+button + button {
+  background: white;
+  color: #284b63;
+}
+
+.app-shell {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 32px 20px;
+}
+
+.summary-band {
+  display: grid;
+  grid-template-columns: 1fr minmax(220px, 280px);
+  gap: 20px;
+  align-items: stretch;
+  border-bottom: 3px solid #3c6e71;
+  padding-bottom: 24px;
+}
+
+.summary-band h1 {
+  margin: 0 0 10px;
+  font-size: 36px;
+}
+
+.summary-band p {
+  max-width: 720px;
+  margin: 0;
+  color: #52616b;
+  line-height: 1.55;
+}
+
+.status-card,
+.panel {
+  border: 1px solid #cfd8dc;
+  border-radius: 8px;
+  background: white;
+}
+
+.status-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.status-card span,
+.panel header span,
+.muted,
+.field span {
+  color: #697981;
+  font-size: 13px;
+}
+
+.status-card strong {
+  font-size: 22px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 24px;
+}
+
+.panel {
+  min-height: 220px;
+  padding: 16px;
+}
+
+.panel header {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.stack-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stack-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid #edf1f2;
+  padding: 10px 0;
+}
+
+.facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.facts div {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid #edf1f2;
+  padding-top: 12px;
+}
+
+.facts dt {
+  color: #52616b;
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid #bdc9ce;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .summary-band,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

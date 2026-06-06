@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join } from "node:path";
 import { printSchema, type GraphQLSchema } from "graphql";
-import { generateFiles, type GenerateFilesOptions } from "@gqlens/codegen";
+import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { isRunnableDevEnvironment, normalizePath } from "vite";
 import { writeGeneratedFiles } from "./write-generated-files";

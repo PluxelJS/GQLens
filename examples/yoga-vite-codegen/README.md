@@ -82,15 +82,30 @@ POST /graphql
 
 Resolver/context-only changes still refresh the Yoga handler, but SDL stays identical, so GQLens codegen and client HMR do not run.
 
-## Vite Proxy
+## 前后端演示
 
-默认 dev 模式会在同一个 Vite server 上挂载 `/graphql`。如果已经有独立后端：
+这个 example 默认按前后端分离运行：
 
-```sh
-GRAPHQL_PROXY_TARGET=http://localhost:4000 npm run dev
-```
+- Yoga 后端：`http://127.0.0.1:4000/graphql`
+- Vite 前端：`http://127.0.0.1:5173`
+- 前端请求相对路径 `/graphql`，由 Vite proxy 转发到 Yoga。
 
-此时插件仍然生成 `src/gqlens/*`，但不会注册本地 middleware；客户端继续请求相对路径 `/graphql`，由 Vite proxy 转发。
+前端页面会通过 generated accessor 读取：
+
+- `q.viewer.name`
+- `q.users.ids`
+- `q.user({ id })`
+- `q.posts.ids`
+- `q.post({ id }).comments.ids`
+
+并通过 generated mutation descriptor 调用：
+
+- `api.comment.add`
+- `api.userOnline.toggle`
+
+`src/client/generated-usage.ts` 是手写的类型样例，参与 `tsc --noEmit`，用于证明 generated accessor、selector、invalidation 和 mutation descriptor 可以被前端正常消费。
+
+如果你确实想把 `/graphql` 挂在同一个 Vite dev server 上，可以去掉 `GRAPHQL_PROXY_TARGET`。不过 GraphQL 工具链对多份 `graphql` package instance 很敏感；前后端分离的 proxy 模式更接近真实应用，也更稳定。
 
 ## 生成文件
 
@@ -115,8 +130,25 @@ npm run verify
 
 ```sh
 npm install
-npm run typecheck
+npm run verify
+```
+
+开发时开两个终端：
+
+```sh
+npm run dev:server
+```
+
+```sh
 npm run dev
+```
+
+也可以单独检查生成物和类型：
+
+```sh
+npm run codegen
+npm run typecheck
+npm run test
 ```
 
 这个示例使用 `graphql` 原生构造器，避免仓库把某个服务端框架 API 写死。如果换成 GQLoom，保持边界不变，只需要把 `createSchema()` 的实现替换成 `weave(...)`。

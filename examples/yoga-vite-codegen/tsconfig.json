@@ -9,6 +9,11 @@
     "noUncheckedIndexedAccess": true,
     "jsx": "react-jsx",
     "types": ["node", "vite/client"],
+    "paths": {
+      "@gqlens/core": ["../../packages/core/src/index.ts"],
+      "@gqlens/core/codegen": ["../../packages/core/codegen/index.ts"],
+      "@gqlens/react": ["../../packages/react/src/index.tsx"]
+    },
     "skipLibCheck": true,
     "noEmit": true
   },

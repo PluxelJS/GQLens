@@ -1,9 +1,9 @@
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import { printSchema } from "graphql";
 import { defineConfig, type Plugin } from "vite";
-import { generateFiles } from "@gqlens/codegen";
+import { generateFiles } from "../../packages/codegen/src/index";
 
-import { createSchema } from "./src/graphql/schema";
+import { createSchemaSDL } from "./src/graphql/schema";
 import { graphqlCodegenPlugin } from "./tooling/vite-plugin-graphql";
 import { writeGeneratedFiles } from "./tooling/write-generated-files";
 
@@ -15,13 +15,14 @@ const graphQLRelatedFiles = [
 
 const graphQLEndpoint = "/graphql";
 const graphQLProxyTarget = process.env.GRAPHQL_PROXY_TARGET;
+const graphQLPackageRoot = fileURLToPath(new URL("node_modules/graphql", import.meta.url));
 
 const gqlensBuildCodegenPlugin = {
   name: "gqlens-build-codegen",
   apply: "build",
   async buildStart() {
     const files = await generateFiles({
-      schema: printSchema(createSchema()),
+      schema: createSchemaSDL(),
       framework: "react",
     });
     await writeGeneratedFiles(files, "src/gqlens");
@@ -60,8 +61,27 @@ export default defineConfig({
       }
     : {}),
 
-  ssr: {
-    noExternal: ["graphql", "graphql-yoga"],
+  ssr: {},
+
+  resolve: {
+    alias: [
+      { find: /^graphql$/, replacement: `${graphQLPackageRoot}/index.mjs` },
+      { find: /^graphql\/(.+)$/, replacement: `${graphQLPackageRoot}/$1` },
+      {
+        find: "@gqlens/core/codegen",
+        replacement: fileURLToPath(
+          new URL("../../packages/core/codegen/index.ts", import.meta.url),
+        ),
+      },
+      {
+        find: "@gqlens/core",
+        replacement: fileURLToPath(new URL("../../packages/core/src/index.ts", import.meta.url)),
+      },
+      {
+        find: "@gqlens/react",
+        replacement: fileURLToPath(new URL("../../packages/react/src/index.tsx", import.meta.url)),
+      },
+    ],
   },
 
   optimizeDeps: {
