@@ -108,6 +108,39 @@ Resolver/context-only changes still refresh the Yoga handler, but SDL stays iden
 
 如果你确实想把 `/graphql` 挂在同一个 Vite dev server 上，可以去掉 `GRAPHQL_PROXY_TARGET`。不过 GraphQL 工具链对多份 `graphql` package instance 很敏感；前后端分离的 proxy 模式更接近真实应用，也更稳定。
 
+## GQLens DX 证明点
+
+这个示例刻意不用手写 GraphQL operation 字符串驱动页面。前端直接读 schema 生成的 accessor：
+
+```tsx
+const q = useQuery();
+const postIds = q.posts.ids ?? [];
+const post = q.post({ id: postIds[0] ?? "p1" });
+```
+
+这样带来的开发体验是：
+
+- 字段名、参数和 mutation input 都来自 schema 生成类型，写错会被 `tsc` 拦住。
+- 组件读了哪些字段就是 selection 需求，不需要同步维护 `query { ... }` 字符串。
+- `api.comment.add` 这类 mutation descriptor 由 schema 生成，变量序列化和结果类型保持一致。
+- `defineInvalidation((q) => q.post({ id }).comments.ids)` 用同一套 accessor 表达 cache 影响范围。
+
+`web/client/generated-usage.ts` 里同时放了正例和 `@ts-expect-error` 反例。`npm run typecheck` 会验证：访问不存在字段、缺少 query 参数、漏传 mutation input、使用不存在的 mutation group 都会失败。
+
+## 日志
+
+这个 example 在应用/tooling 层使用 LogTape，不把 logger 接进 GQLens core/runtime：
+
+- `tooling/generate-gqlens.ts` 记录 codegen 输出目录、文件数、changed/skipped 数量和耗时。
+- `tooling/vite-plugin-graphql.ts` 记录 dev HMR 中 SDL unchanged、schema changed、middleware/proxy 状态。
+- `src/server.ts` 记录独立 Yoga 服务启动。
+
+默认日志级别是 `info`。如果要看 resolver-only 变更时“SDL 未变化，所以跳过 codegen”的细节：
+
+```sh
+GQLENS_EXAMPLE_LOG_LEVEL=debug npm run dev
+```
+
 ## 生成文件
 
 `web/gqlens/` 只提交 README 和 `.gitignore`。运行 dev/build 后会生成：

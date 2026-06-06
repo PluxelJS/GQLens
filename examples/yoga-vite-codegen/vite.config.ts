@@ -3,10 +3,14 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { generateFiles } from "../../packages/codegen/src/index";
 
+import { configureExampleLogging, getExampleLogger } from "./src/logging";
 import { createSchemaSDL } from "./src/schema";
 import { graphqlCodegenPlugin } from "./tooling/vite-plugin-graphql";
 import { writeGeneratedFiles } from "./tooling/write-generated-files";
 
+configureExampleLogging();
+
+const logger = getExampleLogger("build");
 const graphQLRelatedFiles = [/\/src\//] as const;
 
 const graphQLEndpoint = "/graphql";
@@ -17,11 +21,19 @@ const gqlensBuildCodegenPlugin = {
   name: "gqlens-build-codegen",
   apply: "build",
   async buildStart() {
+    const startedAt = performance.now();
     const files = await generateFiles({
       schema: createSchemaSDL(),
       framework: "react",
     });
-    await writeGeneratedFiles(files, "web/gqlens");
+    const writeStats = await writeGeneratedFiles(files, "web/gqlens");
+    logger.info("Generated GQLens files for build in {durationMs}ms.", {
+      durationMs: Math.round(performance.now() - startedAt),
+      output: "web/gqlens",
+      files: writeStats.total,
+      changed: writeStats.changed,
+      skipped: writeStats.skipped,
+    });
   },
 } satisfies Plugin;
 

@@ -1,14 +1,25 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+export interface GeneratedWriteStats {
+  readonly total: number;
+  readonly changed: number;
+  readonly skipped: number;
+}
+
 export async function writeGeneratedFiles(
   files: Readonly<Record<string, string>>,
   output: string,
-): Promise<boolean> {
+): Promise<GeneratedWriteStats> {
   const changed = await Promise.all(
     Object.entries(files).map(([name, content]) => writeIfChanged(join(output, name), content)),
   );
-  return changed.some(Boolean);
+  const changedCount = changed.filter(Boolean).length;
+  return {
+    total: changed.length,
+    changed: changedCount,
+    skipped: changed.length - changedCount,
+  };
 }
 
 async function writeIfChanged(file: string, content: string): Promise<boolean> {

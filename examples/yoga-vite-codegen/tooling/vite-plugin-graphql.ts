@@ -4,6 +4,7 @@ import { printSchema, type GraphQLSchema } from "graphql";
 import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { isRunnableDevEnvironment, normalizePath } from "vite";
+import { getExampleLogger } from "../src/logging";
 import { writeGeneratedFiles } from "./write-generated-files";
 
 type MaybePromise<T> = T | Promise<T>;
@@ -25,6 +26,7 @@ export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, 
 }
 
 export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
+  const logger = getExampleLogger("vite");
   const endpoint = options.endpoint ?? "/graphql";
   const schemaEntry = options.schemaEntry ?? "/src/schema.ts";
   const handlerEntry = options.handlerEntry ?? "/src/yoga.ts";
@@ -109,11 +111,16 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
   }
 
   async function refreshGeneratedFiles(force: boolean): Promise<void> {
+    const startedAt = performance.now();
     const sdl = await loadDevSchemaSDL();
     const schemaChanged = lastSDL !== sdl;
     lastSDL = sdl;
 
     if (!force && !schemaChanged) {
+      logger.debug("Skipped GQLens codegen because SDL is unchanged.", {
+        schemaEntry,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
       return;
     }
 
@@ -122,7 +129,16 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       framework: options.framework,
       adapter: options.adapter,
     });
-    await writeGeneratedFiles(files, rootPath(options.output));
+    const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
+    logger.info("Refreshed GQLens generated files.", {
+      reason: force ? "startup" : "schema-changed",
+      schemaEntry,
+      output: options.output,
+      durationMs: Math.round(performance.now() - startedAt),
+      files: writeStats.total,
+      changed: writeStats.changed,
+      skipped: writeStats.skipped,
+    });
   }
 
   function enqueueRefresh(force: boolean): Promise<void> {
@@ -147,6 +163,9 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       await enqueueRefresh(true);
 
       if (!enableMiddleware) {
+        logger.info("GraphQL middleware disabled; Vite will proxy {endpoint}.", {
+          endpoint,
+        });
         return;
       }
 
@@ -161,6 +180,9 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
             await currentHandler(req, res);
           } catch (error) {
             handler = undefined;
+            logger.error(error instanceof Error ? error : new Error(String(error)), {
+              endpoint,
+            });
             next(error);
           }
         });
@@ -173,6 +195,9 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       }
 
       handler = undefined;
+      logger.debug("GraphQL-related module changed; refreshing handler and generated files.", {
+        file: normalizePath(ctx.file),
+      });
       await enqueueRefresh(false);
       return ctx.modules;
     },

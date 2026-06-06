@@ -16,6 +16,7 @@
   "dependencies": {
     "@gqlens/core": "file:../../packages/core",
     "@gqlens/react": "file:../../packages/react",
+    "@logtape/logtape": "^2.1.1",
     "graphql": "^16",
     "graphql-yoga": "^5",
     "react": "^19",
