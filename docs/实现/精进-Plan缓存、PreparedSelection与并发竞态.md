@@ -1,6 +1,6 @@
-# 精进：Plan 模板缓存 & Prepared Selection 集成
+# 精进与待修复：Plan 缓存 · Prepared Selection · 并发竞态
 
-两项高收益改进指向同一个基本问题：**当前 planner 把 shape 和 values 焊死了**。这导致去重粗糙、defineSelection 产出无法被 session 消费、persisted query 无路可走。
+三项设计关注点：前两项是提升架构能力的改进方向，第三项是已确认的运行时正确性缺口。
 
 ## 问题一：Plan 模板无法缓存
 
@@ -94,3 +94,35 @@ Shape 是慢变信号（字段路径由组件结构决定，极少变），value
 | Suspense / SSR 预取 | component 渲染前即可通过 prepared selection 发起请求 |
 | inflight 去重增强   | 同一 shape 的并发不同入参共享 inflight 槽            |
 | hover / 预加载      | 事件回调中提前 bind + fetch，不依赖 render           |
+
+## 问题三：并发 fetch 的缓存覆盖竞态
+
+### 现况
+
+`inflight` 去重基于 `operationKey` —— 完整 query 文本 + 变量值 JSON。当组件 selections 在飞行中变化时，新旧请求的 query 文本不同，key 不同，`inflight` 不拦截。
+
+```
+组件 render → 读 q.user({id:"1"}).name
+  → plan A: query { user(id: $v0) { name } }    → fetch A 开始（慢）
+
+组件 re-render → 读 q.user({id:"1"}).name, q.user({id:"1"}).avatar
+  → plan B: query { user(id: $v0) { name avatar } } → fetch B 开始（快）
+
+B 先返回 → 写 cache: User:1.name="Bob", User:1.avatar="url"
+A 后返回 → 写 cache: User:1.name="Alice"  ← 覆盖了 B 的 "Bob"
+```
+
+结果：`name="Alice"`（A 的过时数据）但 `avatar="url"`（B 的新数据）——实体处于不一致状态。
+
+### 为何与 GQty #2001 不同
+
+GQty 的同名 issue 源于 proxy selection 管理和响应处理耦合——响应可能清除 proxy 的 selection 状态导致 `SubSelectionRequired`。GQLens 的 collector 和 response 已分离，不存在这个问题。
+
+但 GQLens 的 root cause 是另一个层面的：`cache.normalize()` 按字段无条件覆盖写入，`inflight` 去重粒度是完整 query 文本而非实体字段集合。两者叠加，旧响应中与新响应重叠的字段会被过时数据覆盖。
+
+### 可能的方向
+
+核心矛盾不是「要不要去重并发请求」，而是「过时的响应不应该覆盖更新的缓存数据」。解决路径可以从两个角度切入：
+
+- **请求侧**：引入单调递增版本号，响应写入前检查是否仍是最新请求；或让 `inflight` 按「实体+字段」粒度去重而非按完整 operation 去重
+- **写入侧**：`normalizeEntity` 写入字段前比较 TTL（如果已有更新鲜的值则跳过）；或让每个请求携带发起时刻的时间戳，与字段当前的写入时间戳比较
