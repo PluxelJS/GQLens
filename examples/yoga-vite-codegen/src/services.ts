@@ -2,12 +2,6 @@ import type { db, ExampleComment, ExamplePost, ExampleUser } from "./db";
 
 export function createServices(database: typeof db) {
   return {
-    health() {
-      return {
-        dbStartedAt: database.startedAt,
-      };
-    },
-
     viewer(): ExampleUser {
       return database.users[0]!;
     },

@@ -87,6 +87,41 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 
 前后端分离模式仍然可用：`npm run dev:server` 启动独立 Yoga server，`npm run dev:client` 通过 Vite proxy 转发 `/graphql`。
 
+## 外部复用
+
+插件默认从 `schemaEntry` 读取以下导出，按顺序使用：
+
+1. `createSchemaSDL()`
+2. `schemaSDL`
+3. `createSchema()`
+4. `schema`
+
+对 GQLoom 或其他 code-first schema，推荐在 schema entry 内部导出 SDL 字符串，确保 `printSchema()` 和 schema 构造使用同一个 GraphQL instance：
+
+```ts
+export function createSchemaSDL() {
+  return printSchema(weave(...));
+}
+```
+
+如果外部项目不想暴露固定导出名，可以传自定义 loader：
+
+```ts
+graphqlCodegenPlugin({
+  output: "web/gqlens",
+  loadSchemaSDL: async (context) => {
+    const mod = await context.importModule<typeof import("./src/schema")>("/src/schema.ts");
+    return mod.createSchemaSDL();
+  },
+  loadHandler: async (context) => {
+    const mod = await context.importModule<typeof import("./src/yoga")>("/src/yoga.ts");
+    return mod.createYogaHandler();
+  },
+});
+```
+
+插件本身只接受一个可选 logger 接口，不依赖 LogTape 或 example 应用代码；外部工具可以注入自己的日志实现，也可以完全不传。
+
 ## Vite 插件职责
 
 插件只做有限职责：

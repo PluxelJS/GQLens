@@ -4,7 +4,6 @@ import { printSchema, type GraphQLSchema } from "graphql";
 import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { isRunnableDevEnvironment, normalizePath } from "vite";
-import { getExampleLogger } from "../src/logging";
 import { writeGeneratedFiles } from "./write-generated-files";
 
 type MaybePromise<T> = T | Promise<T>;
@@ -13,20 +12,40 @@ type NodeHandler = (req: IncomingMessage, res: ServerResponse) => unknown | Prom
 type SchemaEntry = {
   readonly createSchema?: (() => MaybePromise<GraphQLSchema>) | undefined;
   readonly createSchemaSDL?: (() => MaybePromise<string>) | undefined;
+  readonly schema?: GraphQLSchema | undefined;
+  readonly schemaSDL?: string | undefined;
 };
+
+export interface GraphQLCodegenPluginContext {
+  readonly server: ViteDevServer;
+  importModule<T = unknown>(id: string): Promise<T>;
+}
+
+export interface GraphQLCodegenPluginLogger {
+  debug(message: string, properties?: Record<string, unknown>): void;
+  info(message: string, properties?: Record<string, unknown>): void;
+  error(error: Error, properties?: Record<string, unknown>): void;
+}
 
 export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, "schema"> {
   readonly output: string;
   readonly schemaEntry?: string | undefined;
+  readonly loadSchemaSDL?:
+    | ((context: GraphQLCodegenPluginContext) => MaybePromise<string | GraphQLSchema>)
+    | undefined;
   readonly handlerEntry?: string | undefined;
   readonly handlerExport?: string | readonly string[] | undefined;
+  readonly loadHandler?:
+    | ((context: GraphQLCodegenPluginContext) => MaybePromise<NodeHandler>)
+    | undefined;
   readonly endpoint?: string | undefined;
   readonly include?: readonly (string | RegExp)[] | undefined;
+  readonly logger?: GraphQLCodegenPluginLogger | undefined;
   readonly middleware?: boolean | undefined;
 }
 
 export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
-  const logger = getExampleLogger("vite");
+  const logger = options.logger ?? noopLogger;
   const endpoint = options.endpoint ?? "/graphql";
   const schemaEntry = options.schemaEntry ?? "/src/schema.ts";
   const handlerEntry = options.handlerEntry ?? "/src/yoga.ts";
@@ -62,39 +81,58 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     return pathname === endpoint || pathname.startsWith(`${endpoint}/`);
   }
 
-  async function loadDevSchemaSDL(): Promise<string> {
+  function devContext(): GraphQLCodegenPluginContext {
     if (!server) {
       throw new Error("[graphql-codegen] Vite dev server is not ready.");
     }
+    const currentServer = server;
 
-    const ssrEnv = server.environments.ssr;
-    if (!isRunnableDevEnvironment(ssrEnv)) {
-      throw new Error("[graphql-codegen] Vite SSR environment is not runnable.");
+    return {
+      server: currentServer,
+      async importModule<T = unknown>(id: string): Promise<T> {
+        const ssrEnv = currentServer.environments.ssr;
+        if (!isRunnableDevEnvironment(ssrEnv)) {
+          throw new Error("[graphql-codegen] Vite SSR environment is not runnable.");
+        }
+        return (await ssrEnv.runner.import(id)) as T;
+      },
+    };
+  }
+
+  async function loadDevSchemaSDL(): Promise<string> {
+    const context = devContext();
+    if (options.loadSchemaSDL) {
+      return normalizeSchema(await options.loadSchemaSDL(context));
     }
 
-    const mod = (await ssrEnv.runner.import(schemaEntry)) as SchemaEntry;
+    const mod = await context.importModule<SchemaEntry>(schemaEntry);
     if (typeof mod.createSchemaSDL === "function") {
       return mod.createSchemaSDL();
     }
+    if (typeof mod.schemaSDL === "string") {
+      return mod.schemaSDL;
+    }
     if (typeof mod.createSchema === "function") {
-      return printSchema(await mod.createSchema());
+      return normalizeSchema(await mod.createSchema());
+    }
+    if (mod.schema) {
+      return normalizeSchema(mod.schema);
     }
 
-    throw new Error(`[graphql-codegen] ${schemaEntry} must export createSchema().`);
+    throw new Error(
+      `[graphql-codegen] ${schemaEntry} must export createSchemaSDL(), schemaSDL, createSchema(), or schema, or pass loadSchemaSDL().`,
+    );
   }
 
   async function loadHandler(): Promise<NodeHandler> {
-    if (!server) {
-      throw new Error("[graphql-codegen] Vite dev server is not ready.");
+    const context = devContext();
+    if (options.loadHandler) {
+      handler ??= Promise.resolve(options.loadHandler(context));
+      return handler;
     }
 
     handler ??= (async () => {
-      const ssrEnv = server.environments.ssr;
-      if (!isRunnableDevEnvironment(ssrEnv)) {
-        throw new Error("[graphql-codegen] Vite SSR environment is not runnable.");
-      }
-
-      const mod = (await ssrEnv.runner.import(handlerEntry)) as Record<string, unknown>;
+      const mod = await context.importModule<Record<string, unknown>>(handlerEntry);
       const factory = handlerExports
         .map((name) => mod[name])
         .find((value) => typeof value === "function");
@@ -108,6 +146,13 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     })();
 
     return handler;
+  }
+
+  function normalizeSchema(schema: string | GraphQLSchema): string {
+    if (typeof schema === "string") {
+      return schema;
+    }
+    return printSchema(schema);
   }
 
   async function refreshGeneratedFiles(force: boolean): Promise<void> {
@@ -206,4 +251,14 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
 function normalizeExports(value: string | readonly string[]): readonly string[] {
   return typeof value === "string" ? [value] : value;
+}
+
+const noopLogger: GraphQLCodegenPluginLogger = {
+  debug: noop,
+  info: noop,
+  error: noop,
+};
+
+function noop(): void {
+  return undefined;
 }

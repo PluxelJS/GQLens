@@ -46,6 +46,21 @@ graphqlCodegenPlugin({
 });
 ```
 
+schema entry 可以导出 `createSchemaSDL()` / `schemaSDL`，也可以导出 `createSchema()` / `schema`。在 monorepo/link 或 GQLoom 这类 code-first 场景里，最稳的是让 schema entry 自己用同一份 `graphql` 打印 SDL：
+
+```ts
+import { printSchema } from "graphql";
+import { weave } from "@gqloom/core";
+
+export function createSchemaSDL() {
+  return printSchema(weave(...));
+}
+```
+
+如果外部项目的 schema/handler 入口命名不同，也可以传 `loadSchemaSDL(context)` / `loadHandler(context)`，通过 `context.importModule()` 使用 Vite SSR ModuleRunner 导入自己的模块。
+
+插件本身不依赖 LogTape；这个 example 只是通过 `logger` 选项把本地日志注入进去。
+
 dev 插件内部复用公共接口，并在插件层处理写盘；这里的 `writeGeneratedFiles()` 是示例本地 helper，不是 GQLens API：
 
 ```ts

@@ -11,6 +11,7 @@ import { writeGeneratedFiles } from "./tooling/write-generated-files";
 configureExampleLogging();
 
 const logger = getExampleLogger("build");
+const viteLogger = getExampleLogger("vite");
 const graphQLRelatedFiles = [/\/src\//] as const;
 
 const graphQLEndpoint = "/graphql";
@@ -48,6 +49,7 @@ export default defineConfig({
       endpoint: graphQLEndpoint,
       include: graphQLRelatedFiles,
       framework: "react",
+      logger: viteLogger,
       middleware: !graphQLProxyTarget,
     }),
 
