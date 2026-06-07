@@ -1,9 +1,10 @@
-import { defineGraphQLEntry } from "../tooling/graphql-entry.ts";
+import { defineGQLensEntry } from "@gqlens/vite/entry";
 import { createSchemaSDL } from "./schema.ts";
+import type { GraphQLNodeHandler } from "./yoga.ts";
 
-export default defineGraphQLEntry({
+export default defineGQLensEntry({
   schema: createSchemaSDL,
-  handler: async (server) => {
+  handler: async (server): Promise<GraphQLNodeHandler> => {
     const mod = (await server.ssrLoadModule("/src/yoga.ts")) as typeof import("./yoga.ts");
     return mod.createYogaHandler();
   },

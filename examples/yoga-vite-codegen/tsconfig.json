@@ -11,9 +11,13 @@
     "jsx": "react-jsx",
     "types": ["node", "vite/client"],
     "paths": {
+      "@gqlens/codegen": ["../../packages/codegen/src/index.ts"],
       "@gqlens/core": ["../../packages/core/src/index.ts"],
       "@gqlens/core/codegen": ["../../packages/core/codegen/index.ts"],
-      "@gqlens/react": ["../../packages/react/src/index.tsx"]
+      "@gqlens/react": ["../../packages/react/src/index.tsx"],
+      "@gqlens/vite": ["../../packages/vite/src/index.ts"],
+      "@gqlens/vite/entry": ["../../packages/vite/src/entry.ts"],
+      "vite": ["./node_modules/vite/dist/node/index.d.ts"]
     },
     "skipLibCheck": true,
     "noEmit": true

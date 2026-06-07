@@ -2,8 +2,8 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { gqlens } from "@gqlens/vite";
 import { configureExampleLogging, getExampleLogger } from "./src/logging";
-import { graphqlCodegenPlugin } from "./tooling/vite-plugin-graphql";
 
 configureExampleLogging();
 
@@ -18,7 +18,7 @@ export default defineConfig({
   appType: "spa",
 
   plugins: [
-    graphqlCodegenPlugin({
+    gqlens({
       output: "web/gqlens",
       entry: "/src/graphql-entry.ts",
       endpoint: graphQLEndpoint,

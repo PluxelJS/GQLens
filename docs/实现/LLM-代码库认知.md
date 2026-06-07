@@ -39,6 +39,11 @@ packages/codegen
   src/normalizer.ts     normalizer metadata + invalidation type generator
   src/generate.ts       generateFiles entry
 
+packages/vite
+  src/entry.ts          defineGQLensEntry typed Vite entry helper
+  src/plugin.ts         Vite codegen/HMR/middleware plugin
+  src/write-generated-files.ts content-diff generated file writer
+
 packages/react
   src/index.tsx         Provider, useQuery/useLiveQuery, useMutation
 
@@ -235,6 +240,21 @@ React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。mu
 - `normalizerEntries`
 - `EntityInvalidationSpec`
 - `InvalidationSpec = EntityInvalidationSpec | InvalidationTarget`
+
+## Vite Package
+
+位置：`packages/vite/src/plugin.ts`
+
+`@gqlens/vite` 是 codegen 的构建工具适配包，不属于 core/runtime。GraphQL entry 从 `@gqlens/vite/entry` 导入零依赖 helper，并 default export `defineGQLensEntry({ schema, handler? })`：
+
+- `schema()` 返回 SDL 字符串。Vite 包刻意不要求 `GraphQLSchema`，避免 monorepo/link 下多份 `graphql` instance 导致 schema realm 问题。
+- dev 阶段用 `server.ssrLoadModule(entry)` 重新加载 entry，文件变化后清空 entry/handler cache。
+- build 阶段用 Node native import 读取同一 entry，所以 entry 的运行时 import 必须能被 Node ESM 解析。
+- `handleHotUpdate` 只对 `include` 匹配文件和 entry 自身响应；SDL 相同则跳过 codegen。
+- 写 generated 文件前做 content-diff。Vite 客户端 HMR 依赖普通文件变更，不手动广播 reload。
+- `handler(server)` 可选。插件运行时传入原始 Vite dev server；公开类型只描述 entry 需要的 `ssrLoadModule()` 能力，避免 file-link/monorepo 下多个 Vite 类型实例互相比较。存在 handler 时插件在 dev server 上挂 `/graphql` middleware；外部 GraphQL server/proxy 场景可设 `middleware: false`。
+
+不要把 Vite-only 类型、Node fs、schema loading 或 middleware 逻辑放进 `@gqlens/core`。
 
 ## 框架适配器
 

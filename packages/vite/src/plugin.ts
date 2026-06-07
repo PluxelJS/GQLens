@@ -1,35 +1,33 @@
+import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { printSchema } from "graphql";
-import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
-import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
-import { normalizePath } from "vite";
-import type { GraphQLPluginEntry, GraphQLSchemaSource, NodeHandler } from "./graphql-entry";
+import type { generateFiles as generateFilesFunction, GenerateFilesOptions } from "@gqlens/codegen";
+import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from "vite";
+import type { GQLensViteEntry, NodeHandler } from "./entry";
 import { writeGeneratedFiles } from "./write-generated-files";
 
-export { defineGraphQLEntry } from "./graphql-entry";
-export type { GraphQLPluginEntry } from "./graphql-entry";
+type GenerateFiles = typeof generateFilesFunction;
 
-type GraphQLEntryModule = {
+type GQLensViteEntryModule = {
   readonly default?: unknown;
 };
 
-export interface GraphQLCodegenPluginLogger {
+export interface GQLensViteLogger {
   debug(message: string, properties?: Record<string, unknown>): void;
   info(message: string, properties?: Record<string, unknown>): void;
   error(error: Error, properties?: Record<string, unknown>): void;
 }
 
-export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, "schema"> {
+export interface GQLensVitePluginOptions extends Omit<GenerateFilesOptions, "schema"> {
   readonly output: string;
   readonly entry: string;
   readonly endpoint?: string | undefined;
   readonly include?: readonly (string | RegExp)[] | undefined;
-  readonly logger?: GraphQLCodegenPluginLogger | undefined;
+  readonly logger?: GQLensViteLogger | undefined;
   readonly middleware?: boolean | undefined;
 }
 
-export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
+export function gqlens(options: GQLensVitePluginOptions): Plugin {
   const logger = options.logger ?? noopLogger;
   const endpoint = options.endpoint ?? "/graphql";
   const entryId = options.entry;
@@ -38,9 +36,10 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   let config: ResolvedConfig;
   let server: ViteDevServer | undefined;
-  let devEntry: Promise<GraphQLPluginEntry> | undefined;
+  let devEntry: Promise<GQLensViteEntry> | undefined;
   let handler: Promise<NodeHandler> | undefined;
   let refreshQueue: Promise<void> = Promise.resolve();
+  let generateFiles: Promise<GenerateFiles> | undefined;
   let lastSDL: string | undefined;
 
   function isIncluded(file: string): boolean {
@@ -75,14 +74,14 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   function devServer(): ViteDevServer {
     if (!server) {
-      throw new Error("[graphql-codegen] Vite dev server is not ready.");
+      throw new Error("[gqlens/vite] Vite dev server is not ready.");
     }
     return server;
   }
 
   async function loadDevSchemaSDL(): Promise<string> {
     const entry = await loadDevEntry();
-    return normalizeSchema(await entry.schema());
+    return entry.schema();
   }
 
   async function loadDevHandler(): Promise<NodeHandler> {
@@ -90,31 +89,36 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     const entry = await loadDevEntry();
     if (!entry.handler) {
       throw new Error(
-        "[graphql-codegen] GraphQL middleware requires a default export with handler(). Set middleware: false when using an external GraphQL server.",
+        "[gqlens/vite] GraphQL middleware requires defineGQLensEntry({ handler }). Set middleware: false when using an external GraphQL server.",
       );
     }
     handler ??= Promise.resolve(entry.handler(viteServer));
     return handler;
   }
 
-  async function loadDevEntry(): Promise<GraphQLPluginEntry> {
+  async function loadDevEntry(): Promise<GQLensViteEntry> {
     devEntry ??= (async () => {
-      const mod = (await devServer().ssrLoadModule(entryId)) as GraphQLEntryModule;
-      return readGraphQLEntry(mod.default, entryId);
+      const mod = (await devServer().ssrLoadModule(entryId)) as GQLensViteEntryModule;
+      return readGQLensEntry(mod.default, entryId);
     })();
     return devEntry;
   }
 
-  async function loadBuildEntry(): Promise<GraphQLPluginEntry> {
-    const mod = (await import(pathToFileURL(entryPath()).href)) as GraphQLEntryModule;
-    return readGraphQLEntry(mod.default, entryId);
+  async function loadBuildEntry(): Promise<GQLensViteEntry> {
+    const mod = (await import(pathToFileURL(entryPath()).href)) as GQLensViteEntryModule;
+    return readGQLensEntry(mod.default, entryId);
   }
 
-  function normalizeSchema(schema: GraphQLSchemaSource): string {
-    if (typeof schema === "string") {
-      return schema;
-    }
-    return printSchema(schema);
+  async function loadGenerateFiles(): Promise<GenerateFiles> {
+    generateFiles ??= (async () => {
+      const require = createRequire(join(config.root, "package.json"));
+      const resolved = resolveCodegen(require);
+      const mod = (await import(resolved ? pathToFileURL(resolved).href : "@gqlens/codegen")) as {
+        readonly generateFiles: GenerateFiles;
+      };
+      return mod.generateFiles;
+    })();
+    return generateFiles;
   }
 
   async function refreshGeneratedFiles(force: boolean): Promise<void> {
@@ -131,7 +135,9 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       return;
     }
 
-    const files = await generateFiles({
+    const files = await (
+      await loadGenerateFiles()
+    )({
       schema: sdl,
       framework: options.framework,
       adapter: options.adapter,
@@ -151,9 +157,10 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
   async function generateBuildFiles(): Promise<void> {
     const startedAt = performance.now();
     const entry = await loadBuildEntry();
-    const sdl = normalizeSchema(await entry.schema());
-    const files = await generateFiles({
-      schema: sdl,
+    const files = await (
+      await loadGenerateFiles()
+    )({
+      schema: await entry.schema(),
       framework: options.framework,
       adapter: options.adapter,
     });
@@ -175,8 +182,25 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     return refreshQueue;
   }
 
+  async function handleGraphQLRequest(
+    req: Parameters<NodeHandler>[0],
+    res: Parameters<NodeHandler>[1],
+    next: (error?: unknown) => void,
+  ): Promise<void> {
+    try {
+      const currentHandler = await loadDevHandler();
+      await currentHandler(req, res);
+    } catch (error) {
+      handler = undefined;
+      logger.error(error instanceof Error ? error : new Error(String(error)), {
+        endpoint,
+      });
+      next(error);
+    }
+  }
+
   return {
-    name: "vite-plugin-graphql-codegen",
+    name: "gqlens-vite",
     enforce: "pre",
 
     configResolved(resolvedConfig) {
@@ -202,21 +226,13 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       }
 
       return () => {
-        viteServer.middlewares.use(async (req, res, next) => {
+        viteServer.middlewares.use((req, res, next) => {
           if (!isGraphQLRequest(req.url)) {
-            return next();
+            next();
+            return;
           }
 
-          try {
-            const currentHandler = await loadDevHandler();
-            await currentHandler(req, res);
-          } catch (error) {
-            handler = undefined;
-            logger.error(error instanceof Error ? error : new Error(String(error)), {
-              endpoint,
-            });
-            next(error);
-          }
+          void handleGraphQLRequest(req, res, next);
         });
       };
     },
@@ -237,23 +253,23 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
   };
 }
 
-const noopLogger: GraphQLCodegenPluginLogger = {
+const noopLogger: GQLensViteLogger = {
   debug: noop,
   info: noop,
   error: noop,
 };
 
-function readGraphQLEntry(value: unknown, source: string): GraphQLPluginEntry {
-  if (!isGraphQLEntry(value)) {
+function readGQLensEntry(value: unknown, source: string): GQLensViteEntry {
+  if (!isGQLensEntry(value)) {
     throw new Error(
-      `[graphql-codegen] ${source} must default-export defineGraphQLEntry({ schema, ... }).`,
+      `[gqlens/vite] ${source} must default-export defineGQLensEntry({ schema, ... }).`,
     );
   }
 
   return value;
 }
 
-function isGraphQLEntry(value: unknown): value is GraphQLPluginEntry {
+function isGQLensEntry(value: unknown): value is GQLensViteEntry {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -265,4 +281,12 @@ function isGraphQLEntry(value: unknown): value is GraphQLPluginEntry {
 
 function noop(): void {
   return undefined;
+}
+
+function resolveCodegen(require: NodeJS.Require): string | undefined {
+  try {
+    return require.resolve("@gqlens/codegen");
+  } catch {
+    return undefined;
+  }
 }

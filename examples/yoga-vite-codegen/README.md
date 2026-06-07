@@ -1,6 +1,6 @@
 # Yoga + Vite + GQLens Codegen 示例
 
-这个示例展示应用侧如何把 Yoga、Vite HMR 和 GQLens codegen 串起来。`@gqlens/codegen` 只负责把 schema 生成文件内容；Vite/Rolldown 插件何时调用、如何写盘、如何 watch，都由应用或外部工具决定。
+这个示例展示如何把 Yoga、Vite HMR 和 GQLens codegen 串起来。`@gqlens/codegen` 只负责把 schema 生成文件内容；`@gqlens/vite` 负责 Vite hook、schema diff、content-diff 写盘和可选 `/graphql` dev middleware。
 
 ## 核心边界
 
@@ -14,10 +14,10 @@
 
 ## 关键配置
 
-`vite.config.ts` 只注册一个应用侧 Vite 插件。`src/graphql-entry.ts` default export `defineGraphQLEntry(...)`，声明 schema provider 和可选 handler；dev 下插件通过 Vite 重新加载这个真实 TS entry，build 下通过 Node native import 读取同一个 default export：
+`vite.config.ts` 只注册 `@gqlens/vite`。`src/graphql-entry.ts` default export `defineGQLensEntry(...)`，声明 schema provider 和可选 handler；dev 下插件通过 Vite 重新加载这个真实 TS entry，build 下通过 Node native import 读取同一个 default export：
 
 ```ts
-graphqlCodegenPlugin({
+gqlens({
   output: "web/gqlens",
   entry: "/src/graphql-entry.ts",
   endpoint: "/graphql",
@@ -30,10 +30,10 @@ graphqlCodegenPlugin({
 GraphQL entry 本身是普通 TypeScript 文件，IDE 可以直接推导 schema/handler 签名。`handler` 拿到的是原始 `ViteDevServer`，不需要应用理解插件自造的 context：
 
 ```ts
-import { defineGraphQLEntry } from "../tooling/graphql-entry.ts";
+import { defineGQLensEntry } from "@gqlens/vite/entry";
 import { createSchemaSDL } from "./schema.ts";
 
-export default defineGraphQLEntry({
+export default defineGQLensEntry({
   schema: () => createSchemaSDL(),
   handler: async (server) => {
     const mod = (await server.ssrLoadModule("/src/yoga.ts")) as typeof import("./yoga.ts");
@@ -57,7 +57,7 @@ export function createSchemaSDL() {
 
 插件本身不依赖 LogTape；这个 example 只是通过 `logger` 选项把本地日志注入进去。
 
-dev 插件内部复用公共接口，并在插件层处理写盘；这里的 `writeGeneratedFiles()` 是示例本地 helper，不是 GQLens API：
+standalone `npm run codegen` 脚本仍然直接复用 `@gqlens/codegen`，并用示例本地 helper 做 content-diff 写盘：
 
 ```ts
 const files = await generateFiles({
@@ -68,7 +68,7 @@ const files = await generateFiles({
 await writeGeneratedFiles(files, "web/gqlens");
 ```
 
-如果你想写自己的 Rolldown/Vite/Rspack 插件，只需要在合适的 hook 里拿到 SDL，然后调用 `@gqlens/codegen` 的 `generateFiles()`。GQLens 不接管 output path、content-diff 写盘、watch/filter/candidate discovery。
+如果你想写自己的 Rolldown/Rspack 插件，只需要在合适的 hook 里拿到 SDL，然后调用 `@gqlens/codegen` 的 `generateFiles()`。如果使用 Vite，优先复用 `@gqlens/vite`。
 
 `generateFiles()` 也接受 `GraphQLSchema`，但构建工具里可能出现多份 `graphql` 包实例；最稳的方式是在应用侧用同一份 `graphql` 先 `printSchema()`，再把 SDL 字符串交给 GQLens。
 
@@ -143,7 +143,7 @@ const post = q.post({ id: postIds[0] ?? "p1" });
 这个 example 在应用/tooling 层使用 LogTape，不把 logger 接进 GQLens core/runtime：
 
 - `tooling/generate-gqlens.ts` 记录 codegen 输出目录、文件数、changed/skipped 数量和耗时。
-- `tooling/vite-plugin-graphql.ts` 记录 dev HMR 中 SDL unchanged、schema changed、middleware/proxy 状态。
+- `@gqlens/vite` 通过 `logger` 选项记录 dev HMR 中 SDL unchanged、schema changed、middleware/proxy 状态。
 - `src/server.ts` 记录独立 Yoga 服务启动。
 
 默认日志级别是 `info`。如果要看 resolver-only 变更时“SDL 未变化，所以跳过 codegen”的细节：

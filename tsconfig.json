@@ -30,7 +30,9 @@
       "@gqlens/core": ["./packages/core/src/index.ts"],
       "@gqlens/core/codegen": ["./packages/core/codegen/index.ts"],
       "@gqlens/react": ["./packages/react/src/index.tsx"],
-      "@gqlens/solid": ["./packages/solid/src/index.ts"]
+      "@gqlens/solid": ["./packages/solid/src/index.ts"],
+      "@gqlens/vite": ["./packages/vite/src/index.ts"],
+      "@gqlens/vite/entry": ["./packages/vite/src/entry.ts"]
     }
   },
   "include": []
