@@ -200,6 +200,9 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     },
 
     async buildStart() {
+      if (config.command !== "build") {
+        return;
+      }
       await generateBuildFiles();
     },
 
@@ -257,25 +260,25 @@ const noopLogger: GraphQLCodegenPluginLogger = {
 };
 
 function readHMRDefinition(value: unknown, source: string): GraphQLHMRDefinition {
-  if (
-    !isObject(value) ||
-    typeof value.schema !== "function" ||
-    typeof value.buildSchema !== "function"
-  ) {
+  if (!isHMRDefinition(value)) {
     throw new Error(
       `[graphql-codegen] ${source} must default-export defineGraphQLHMR({ schema, buildSchema, ... }).`,
     );
   }
 
-  if ("handler" in value && value.handler !== undefined && typeof value.handler !== "function") {
-    throw new Error(`[graphql-codegen] ${source} handler must be a function when provided.`);
-  }
-
-  return value as unknown as GraphQLHMRDefinition;
+  return value;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function isHMRDefinition(value: unknown): value is GraphQLHMRDefinition {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "schema" in value &&
+    typeof value.schema === "function" &&
+    "buildSchema" in value &&
+    typeof value.buildSchema === "function" &&
+    (!("handler" in value) || value.handler === undefined || typeof value.handler === "function")
+  );
 }
 
 function noop(): void {
