@@ -5,7 +5,7 @@
 这个示例展示 `yoga + gqlens + vite` 的开发期协作方式：
 
 - Vite dev server 同时承载前端和 `/graphql` middleware。
-- Vite Environment API 的 SSR ModuleRunner 负责重新加载 server/schema 入口。
+- Vite dev server 的 `ssrLoadModule()` 负责重新加载 server/schema 入口。
 - GraphQL handler 在 `src/*` 变化后热替换，不重启 dev server。
 - 只有 GraphQL 类型系统实际变化时，才触发 GQLens codegen。
 - 只有 generated 文件内容实际变化时，才触发前端 HMR。
@@ -47,16 +47,16 @@ import { createSchema } from "./schema";
 Vite 插件通过 typed GraphQL entry 连接两者：
 
 ```ts
-import type { GraphQLPluginEntry } from "../tooling/graphql-entry.ts";
+import { defineGraphQLEntry } from "../tooling/graphql-entry.ts";
 import { createSchemaSDL } from "./schema.ts";
 
-export default {
+export default defineGraphQLEntry({
   schema: () => createSchemaSDL(),
-  handler: async (context) => {
-    const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
+  handler: async (server) => {
+    const mod = (await server.ssrLoadModule("/src/yoga.ts")) as typeof import("./yoga.ts");
     return mod.createYogaHandler();
   },
-} satisfies GraphQLPluginEntry;
+});
 ```
 
 `virtual:` 模块只允许作为工具内部胶水，不作为用户 API。
@@ -124,7 +124,7 @@ graphqlCodegenPlugin({
 });
 ```
 
-dev 阶段用 Vite ModuleRunner import 这个 entry，让 module graph 负责热更新；build 阶段用 Node native import 读取同一个 default export。插件不猜测 schema/handler 导出名，也不接受另一套 loader API。
+dev 阶段用 Vite `ssrLoadModule()` import 这个 entry，让 module graph 负责热更新；build 阶段用 Node native import 读取同一个 default export。插件不猜测 schema/handler 导出名，也不接受另一套 loader API。
 
 因为 build 阶段不经过 Vite transform，typed entry 中参与 `schema()` 的运行时 import 必须能被 Node ESM 解析。示例通过 `.ts` 后缀 import 和 `allowImportingTsExtensions` 保证这一点。
 
@@ -134,13 +134,13 @@ dev 阶段用 Vite ModuleRunner import 这个 entry，让 module graph 负责热
 import { printSchema } from "graphql";
 import { weave } from "@gqloom/core";
 
-export default {
+export default defineGraphQLEntry({
   schema: () => printSchema(weave(...)),
-  handler: async (context) => {
-    const mod = await context.importModule<typeof import("./src/yoga")>("/src/yoga.ts");
+  handler: async (server) => {
+    const mod = (await server.ssrLoadModule("/src/yoga.ts")) as typeof import("./src/yoga.ts");
     return mod.createYogaHandler();
   },
-} satisfies GraphQLPluginEntry;
+});
 ```
 
 插件本身只接受一个可选 logger 接口，不依赖 LogTape 或 example 应用代码；外部工具可以注入自己的日志实现，也可以完全不传。

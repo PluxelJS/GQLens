@@ -6,7 +6,7 @@
 
 - 服务端入口都是真实 TS 文件：`src/graphql-entry.ts`、`src/schema.ts`、`src/yoga.ts`、`src/server.ts`。
 - 前端代码放在 `web/client`，GQLens 生成物放在 `web/gqlens`。
-- dev 下 Vite ModuleRunner 重新 import `src/graphql-entry.ts`，拿到 typed GraphQL entry，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
+- dev 下 Vite `ssrLoadModule()` 重新 import `src/graphql-entry.ts`，拿到 typed GraphQL entry，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
 - Vite dev server 同时承载前端、`/graphql` middleware、schema diff 和 codegen HMR。
 - build 下直接 native import 同一个 GraphQL entry 的 default export，并在 `buildStart` 里调用 `generateFiles()`。
@@ -14,7 +14,7 @@
 
 ## 关键配置
 
-`vite.config.ts` 只注册一个应用侧 Vite 插件。`src/graphql-entry.ts` default export 一个普通对象，声明 schema provider 和可选 handler；dev 下插件通过 Vite SSR ModuleRunner 重新加载这个真实 TS entry，build 下通过 Node native import 读取同一个 default export：
+`vite.config.ts` 只注册一个应用侧 Vite 插件。`src/graphql-entry.ts` default export `defineGraphQLEntry(...)`，声明 schema provider 和可选 handler；dev 下插件通过 Vite 重新加载这个真实 TS entry，build 下通过 Node native import 读取同一个 default export：
 
 ```ts
 graphqlCodegenPlugin({
@@ -27,19 +27,19 @@ graphqlCodegenPlugin({
 });
 ```
 
-GraphQL entry 本身是普通 TypeScript 文件，IDE 可以直接检查 schema/handler 签名：
+GraphQL entry 本身是普通 TypeScript 文件，IDE 可以直接推导 schema/handler 签名。`handler` 拿到的是原始 `ViteDevServer`，不需要应用理解插件自造的 context：
 
 ```ts
-import type { GraphQLPluginEntry } from "../tooling/graphql-entry.ts";
+import { defineGraphQLEntry } from "../tooling/graphql-entry.ts";
 import { createSchemaSDL } from "./schema.ts";
 
-export default {
+export default defineGraphQLEntry({
   schema: () => createSchemaSDL(),
-  handler: async (context) => {
-    const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
+  handler: async (server) => {
+    const mod = (await server.ssrLoadModule("/src/yoga.ts")) as typeof import("./yoga.ts");
     return mod.createYogaHandler();
   },
-} satisfies GraphQLPluginEntry;
+});
 ```
 
 因为 build 阶段会用 Node native import 读取这个 entry，entry 中参与 `schema()` 的运行时 import 需要是 Node ESM 可解析的路径。示例在 `tsconfig.json` 开启 `allowImportingTsExtensions`，并在 entry 里使用 `.ts` 后缀 import。
@@ -77,7 +77,7 @@ await writeGeneratedFiles(files, "web/gqlens");
 ```txt
 src/* changed
   -> Vite invalidates server module graph
-  -> plugin imports /src/graphql-entry.ts with ModuleRunner
+  -> plugin imports /src/graphql-entry.ts with ssrLoadModule()
   -> entry.schema()
   -> normalize SDL
   -> compare with last in-memory SDL

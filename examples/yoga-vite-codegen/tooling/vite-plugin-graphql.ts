@@ -3,16 +3,12 @@ import { pathToFileURL } from "node:url";
 import { printSchema } from "graphql";
 import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
-import { isRunnableDevEnvironment, normalizePath } from "vite";
-import type {
-  GraphQLPluginContext,
-  GraphQLPluginEntry,
-  GraphQLSchemaSource,
-  NodeHandler,
-} from "./graphql-entry";
+import { normalizePath } from "vite";
+import type { GraphQLPluginEntry, GraphQLSchemaSource, NodeHandler } from "./graphql-entry";
 import { writeGeneratedFiles } from "./write-generated-files";
 
-export type { GraphQLPluginContext, GraphQLPluginEntry } from "./graphql-entry";
+export { defineGraphQLEntry } from "./graphql-entry";
+export type { GraphQLPluginEntry } from "./graphql-entry";
 
 type GraphQLEntryModule = {
   readonly default?: unknown;
@@ -49,6 +45,9 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   function isIncluded(file: string): boolean {
     const normalized = normalizePath(file);
+    if (normalized === normalizePath(entryPath())) {
+      return true;
+    }
     return include.some((rule) =>
       typeof rule === "string" ? normalized.includes(rule) : rule.test(normalized),
     );
@@ -74,43 +73,33 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     return pathname === endpoint || pathname.startsWith(`${endpoint}/`);
   }
 
-  function devContext(): GraphQLPluginContext {
+  function devServer(): ViteDevServer {
     if (!server) {
       throw new Error("[graphql-codegen] Vite dev server is not ready.");
     }
-    const currentServer = server;
-
-    return {
-      async importModule<T = unknown>(id: string): Promise<T> {
-        const ssrEnv = currentServer.environments.ssr;
-        if (!isRunnableDevEnvironment(ssrEnv)) {
-          throw new Error("[graphql-codegen] Vite SSR environment is not runnable.");
-        }
-        return (await ssrEnv.runner.import(id)) as T;
-      },
-    };
+    return server;
   }
 
   async function loadDevSchemaSDL(): Promise<string> {
-    const entry = await loadDevEntry(devContext());
+    const entry = await loadDevEntry();
     return normalizeSchema(await entry.schema());
   }
 
   async function loadDevHandler(): Promise<NodeHandler> {
-    const context = devContext();
-    const entry = await loadDevEntry(context);
+    const viteServer = devServer();
+    const entry = await loadDevEntry();
     if (!entry.handler) {
       throw new Error(
         "[graphql-codegen] GraphQL middleware requires a default export with handler(). Set middleware: false when using an external GraphQL server.",
       );
     }
-    handler ??= Promise.resolve(entry.handler(context));
+    handler ??= Promise.resolve(entry.handler(viteServer));
     return handler;
   }
 
-  async function loadDevEntry(context: GraphQLPluginContext): Promise<GraphQLPluginEntry> {
+  async function loadDevEntry(): Promise<GraphQLPluginEntry> {
     devEntry ??= (async () => {
-      const mod = await context.importModule<GraphQLEntryModule>(entryId);
+      const mod = (await devServer().ssrLoadModule(entryId)) as GraphQLEntryModule;
       return readGraphQLEntry(mod.default, entryId);
     })();
     return devEntry;
@@ -257,7 +246,7 @@ const noopLogger: GraphQLCodegenPluginLogger = {
 function readGraphQLEntry(value: unknown, source: string): GraphQLPluginEntry {
   if (!isGraphQLEntry(value)) {
     throw new Error(
-      `[graphql-codegen] ${source} must default-export an object with schema() and optional handler().`,
+      `[graphql-codegen] ${source} must default-export defineGraphQLEntry({ schema, ... }).`,
     );
   }
 

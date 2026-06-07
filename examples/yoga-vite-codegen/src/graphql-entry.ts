@@ -1,10 +1,10 @@
-import type { GraphQLPluginEntry } from "../tooling/graphql-entry.ts";
+import { defineGraphQLEntry } from "../tooling/graphql-entry.ts";
 import { createSchemaSDL } from "./schema.ts";
 
-export default {
+export default defineGraphQLEntry({
   schema: createSchemaSDL,
-  handler: async (context) => {
-    const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
+  handler: async (server) => {
+    const mod = (await server.ssrLoadModule("/src/yoga.ts")) as typeof import("./yoga.ts");
     return mod.createYogaHandler();
   },
-} satisfies GraphQLPluginEntry;
+});
