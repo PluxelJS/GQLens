@@ -14,30 +14,13 @@
 
 ## 关键配置
 
-`vite.config.ts` 分成 build codegen 和 dev HMR 两层。
-
-构建态使用一个应用侧 build 插件，直接调用 codegen 函数：
-
-```ts
-const gqlensBuildCodegenPlugin = {
-  name: "gqlens-build-codegen",
-  apply: "build",
-  async buildStart() {
-    const files = await generateFiles({
-      schema: printSchema(createSchema()),
-      framework: "react",
-    });
-    await writeGeneratedFiles(files, "web/gqlens");
-  },
-};
-```
-
-开发态使用应用侧 Vite 插件，因为 ModuleRunner、middleware 和 proxy 是 Vite dev server 能力：
+`vite.config.ts` 只注册一个应用侧 Vite 插件。dev 下它用 Vite SSR ModuleRunner 重新加载 schema/handler；build 下没有 dev server，所以通过 `loadBuildSchemaSDL` 显式提供 SDL：
 
 ```ts
 graphqlCodegenPlugin({
   output: "web/gqlens",
   schemaEntry: "/src/schema.ts",
+  loadBuildSchemaSDL: createSchemaSDL,
   handlerEntry: "/src/yoga.ts",
   endpoint: "/graphql",
   include: graphQLRelatedFiles,

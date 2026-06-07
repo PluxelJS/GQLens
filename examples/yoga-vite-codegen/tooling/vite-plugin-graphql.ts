@@ -33,6 +33,7 @@ export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, 
   readonly loadSchemaSDL?:
     | ((context: GraphQLCodegenPluginContext) => MaybePromise<string | GraphQLSchema>)
     | undefined;
+  readonly loadBuildSchemaSDL?: (() => MaybePromise<string | GraphQLSchema>) | undefined;
   readonly handlerEntry?: string | undefined;
   readonly handlerExport?: string | readonly string[] | undefined;
   readonly loadHandler?:
@@ -186,6 +187,28 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     });
   }
 
+  async function generateBuildFiles(): Promise<void> {
+    if (!options.loadBuildSchemaSDL) {
+      return;
+    }
+
+    const startedAt = performance.now();
+    const sdl = normalizeSchema(await options.loadBuildSchemaSDL());
+    const files = await generateFiles({
+      schema: sdl,
+      framework: options.framework,
+      adapter: options.adapter,
+    });
+    const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
+    logger.info("Generated GQLens files for build in {durationMs}ms.", {
+      durationMs: Math.round(performance.now() - startedAt),
+      output: options.output,
+      files: writeStats.total,
+      changed: writeStats.changed,
+      skipped: writeStats.skipped,
+    });
+  }
+
   function enqueueRefresh(force: boolean): Promise<void> {
     refreshQueue = refreshQueue.then(
       () => refreshGeneratedFiles(force),
@@ -196,11 +219,14 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   return {
     name: "vite-plugin-graphql-codegen",
-    apply: "serve",
     enforce: "pre",
 
     configResolved(resolvedConfig) {
       config = resolvedConfig;
+    },
+
+    async buildStart() {
+      await generateBuildFiles();
     },
 
     async configureServer(viteServer) {

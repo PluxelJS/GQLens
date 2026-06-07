@@ -77,6 +77,14 @@ current Yoga handler
 src/* change clears handler cache
         ↓
 next request imports /src/yoga.ts again
+
+vite build
+        ↓
+loadBuildSchemaSDL()
+        ↓
+run GQLens codegen
+        ↓
+content-diff generated TS files
 ```
 
 ## GraphQL package realm
@@ -109,6 +117,7 @@ export function createSchemaSDL() {
 ```ts
 graphqlCodegenPlugin({
   output: "web/gqlens",
+  loadBuildSchemaSDL: createSchemaSDL,
   loadSchemaSDL: async (context) => {
     const mod = await context.importModule<typeof import("./src/schema")>("/src/schema.ts");
     return mod.createSchemaSDL();
@@ -133,6 +142,7 @@ graphqlCodegenPlugin({
 5. 在 SDL 变化时触发 GQLens codegen。
 6. 对 generated TS 文件做 content-diff 写入。
 7. 在 dev middleware 中懒加载并缓存 Yoga handler，相关文件变更后清空缓存。
+8. 在 buildStart 中使用 `loadBuildSchemaSDL()` 生成一次文件。
 
 不做：
 
