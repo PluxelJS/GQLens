@@ -4,9 +4,9 @@
 
 ## 核心边界
 
-- 服务端入口都是真实 TS 文件：`src/schema.ts`、`src/yoga.ts`、`src/server.ts`。
+- 服务端入口都是真实 TS 文件：`src/graphql-hmr.ts`、`src/schema.ts`、`src/yoga.ts`、`src/server.ts`。
 - 前端代码放在 `web/client`，GQLens 生成物放在 `web/gqlens`。
-- dev 下 Vite ModuleRunner 重新 import `schema.ts`，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
+- dev 下 Vite ModuleRunner 重新 import `src/graphql-hmr.ts`，拿到 typed HMR definition，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
 - Vite dev server 同时承载前端、`/graphql` middleware、schema diff 和 codegen HMR。
 - build 下没有 ModuleRunner，所以 `vite.config.ts` 在 `buildStart` 里直接调用 `generateFiles()`。
@@ -14,14 +14,15 @@
 
 ## 关键配置
 
-`vite.config.ts` 只注册一个应用侧 Vite 插件。dev 下它用 Vite SSR ModuleRunner 重新加载 schema/handler；build 下没有 dev server，所以通过 `loadBuildSchemaSDL` 显式提供 SDL：
+`vite.config.ts` 只注册一个应用侧 Vite 插件。`src/graphql-hmr.ts` 用 `defineGraphQLHMR()` 声明 schema、build schema 和 handler；dev 下插件通过 Vite SSR ModuleRunner 重新加载这个真实 TS entry，build 下则使用 config 里静态传入的 typed definition：
 
 ```ts
+import graphqlHMR from "./src/graphql-hmr";
+
 graphqlCodegenPlugin({
   output: "web/gqlens",
-  schemaEntry: "/src/schema.ts",
-  loadBuildSchemaSDL: createSchemaSDL,
-  handlerEntry: "/src/yoga.ts",
+  definition: graphqlHMR,
+  entry: "/src/graphql-hmr.ts",
   endpoint: "/graphql",
   include: graphQLRelatedFiles,
   framework: "react",
@@ -29,7 +30,23 @@ graphqlCodegenPlugin({
 });
 ```
 
-schema entry 可以导出 `createSchemaSDL()` / `schemaSDL`，也可以导出 `createSchema()` / `schema`。在 monorepo/link 或 GQLoom 这类 code-first 场景里，最稳的是让 schema entry 自己用同一份 `graphql` 打印 SDL：
+HMR entry 本身是普通 TypeScript 文件，IDE 可以直接推导 loader/handler 签名：
+
+```ts
+import { defineGraphQLHMR } from "../tooling/graphql-hmr";
+import { createSchemaSDL } from "./schema";
+
+export default defineGraphQLHMR({
+  schema: () => createSchemaSDL(),
+  buildSchema: createSchemaSDL,
+  handler: async (context) => {
+    const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
+    return mod.createYogaHandler();
+  },
+});
+```
+
+在 monorepo/link 或 GQLoom 这类 code-first 场景里，最稳的是让 schema 模块自己用同一份 `graphql` 打印 SDL，再由 HMR entry 返回字符串：
 
 ```ts
 import { printSchema } from "graphql";
@@ -40,7 +57,7 @@ export function createSchemaSDL() {
 }
 ```
 
-如果外部项目的 schema/handler 入口命名不同，也可以传 `loadSchemaSDL(context)` / `loadHandler(context)`，通过 `context.importModule()` 使用 Vite SSR ModuleRunner 导入自己的模块。
+如果外部项目不想使用 typed entry，也可以退回显式 loader：传 `loadSchemaSDL(context)` / `loadHandler(context)`，通过 `context.importModule()` 使用 Vite SSR ModuleRunner 导入自己的模块。插件仍保留 `schemaEntry` / `handlerEntry` 的默认导出名兜底，但示例主路径不依赖这种猜测。
 
 插件本身不依赖 LogTape；这个 example 只是通过 `logger` 选项把本地日志注入进去。
 
@@ -64,9 +81,9 @@ await writeGeneratedFiles(files, "web/gqlens");
 ```txt
 src/* changed
   -> Vite invalidates server module graph
-  -> plugin imports /src/schema.ts with ModuleRunner
-  -> createSchema()
-  -> printSchema()
+  -> plugin imports /src/graphql-hmr.ts with ModuleRunner
+  -> hmr.schema()
+  -> normalize SDL
   -> compare with last in-memory SDL
   -> SDL changed: generate web/gqlens/*
   -> generated files are written only if content changed
@@ -75,8 +92,8 @@ src/* changed
 POST /graphql
   -> same Vite dev server middleware
   -> current Yoga handler
-  -> file change clears handler cache
-  -> next request creates a fresh handler from /src/yoga.ts
+  -> file change clears HMR definition and handler cache
+  -> next request imports /src/graphql-hmr.ts again
 ```
 
 Resolver/context-only changes refresh the Yoga handler, but SDL stays identical, so GQLens codegen and client HMR do not run.

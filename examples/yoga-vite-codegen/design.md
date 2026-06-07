@@ -17,6 +17,7 @@
 
 ```txt
 src/
+  graphql-hmr.ts           # typed HMR definition，schema/handler 合约
   schema.ts                # schema entry，真实 TS
   yoga.ts                  # Yoga handler factory，真实 TS
   context.ts               # context，真实 TS
@@ -43,6 +44,22 @@ import { useQuery, api } from "../gqlens/accessor";
 import { createSchema } from "./schema";
 ```
 
+Vite 插件通过 typed HMR entry 连接两者：
+
+```ts
+import { defineGraphQLHMR } from "../tooling/graphql-hmr";
+import { createSchemaSDL } from "./schema";
+
+export default defineGraphQLHMR({
+  schema: () => createSchemaSDL(),
+  buildSchema: createSchemaSDL,
+  handler: async (context) => {
+    const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
+    return mod.createYogaHandler();
+  },
+});
+```
+
 `virtual:` 模块只允许作为工具内部胶水，不作为用户 API。
 
 ## 主链路
@@ -52,11 +69,11 @@ src/* changed
         ↓
 Vite invalidates SSR module graph
         ↓
-插件重新加载 /src/schema.ts
+插件重新加载 /src/graphql-hmr.ts
         ↓
-new GraphQLSchema
+hmr.schema()
         ↓
-print SDL
+normalize SDL
         ↓
 compare with last in-memory SDL
         ↓
@@ -76,11 +93,11 @@ current Yoga handler
         ↓
 src/* change clears handler cache
         ↓
-next request imports /src/yoga.ts again
+next request imports /src/graphql-hmr.ts again
 
 vite build
         ↓
-loadBuildSchemaSDL()
+hmr.buildSchema()
         ↓
 run GQLens codegen
         ↓
@@ -97,7 +114,21 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 
 ## 外部复用
 
-插件默认从 `schemaEntry` 读取以下导出，按顺序使用：
+推荐外部项目也提供 typed entry，并在 Vite config 中同时传 `definition` 和 `entry`：
+
+```ts
+import graphqlHMR from "./src/graphql-hmr";
+
+graphqlCodegenPlugin({
+  output: "web/gqlens",
+  definition: graphqlHMR,
+  entry: "/src/graphql-hmr.ts",
+});
+```
+
+`definition` 给 build 使用，避免 build 阶段动态导入 TS entry；`entry` 给 dev 使用，让 Vite ModuleRunner 和 module graph 负责热更新。
+
+如果外部项目暂时不想写 typed entry，插件仍可从 `schemaEntry` 读取以下导出，按顺序使用：
 
 1. `createSchemaSDL()`
 2. `schemaSDL`
@@ -112,7 +143,7 @@ export function createSchemaSDL() {
 }
 ```
 
-如果外部项目不想暴露固定导出名，可以传自定义 loader：
+如果外部项目不想暴露固定导出名，也可以传自定义 loader：
 
 ```ts
 graphqlCodegenPlugin({
@@ -136,13 +167,13 @@ graphqlCodegenPlugin({
 插件只做有限职责：
 
 1. 监听 GraphQL 相关真实模块的变更。
-2. 通过 Vite SSR module graph 重新加载 schema entry。
-3. 从 `GraphQLSchema` 派生 SDL。
+2. 通过 Vite SSR module graph 重新加载 typed HMR entry 或 schema entry。
+3. 将 schema source 规范化为 SDL。
 4. 对 SDL 做内存 diff。
 5. 在 SDL 变化时触发 GQLens codegen。
 6. 对 generated TS 文件做 content-diff 写入。
 7. 在 dev middleware 中懒加载并缓存 Yoga handler，相关文件变更后清空缓存。
-8. 在 buildStart 中使用 `loadBuildSchemaSDL()` 生成一次文件。
+8. 在 buildStart 中使用静态 typed definition 或 `loadBuildSchemaSDL()` 生成一次文件。
 
 不做：
 

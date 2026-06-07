@@ -1,13 +1,19 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join } from "node:path";
 import { printSchema, type GraphQLSchema } from "graphql";
 import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { isRunnableDevEnvironment, normalizePath } from "vite";
+import type {
+  GraphQLCodegenPluginContext,
+  GraphQLHMRDefinition,
+  GraphQLSchemaSource,
+  MaybePromise,
+  NodeHandler,
+} from "./graphql-hmr";
 import { writeGeneratedFiles } from "./write-generated-files";
 
-type MaybePromise<T> = T | Promise<T>;
-type NodeHandler = (req: IncomingMessage, res: ServerResponse) => unknown | Promise<unknown>;
+export { defineGraphQLHMR } from "./graphql-hmr";
+export type { GraphQLCodegenPluginContext, GraphQLHMRDefinition } from "./graphql-hmr";
 
 type SchemaEntry = {
   readonly createSchema?: (() => MaybePromise<GraphQLSchema>) | undefined;
@@ -16,10 +22,10 @@ type SchemaEntry = {
   readonly schemaSDL?: string | undefined;
 };
 
-export interface GraphQLCodegenPluginContext {
-  readonly server: ViteDevServer;
-  importModule<T = unknown>(id: string): Promise<T>;
-}
+type GraphQLHMREntry = {
+  readonly default?: GraphQLHMRDefinition | undefined;
+  readonly hmr?: GraphQLHMRDefinition | undefined;
+};
 
 export interface GraphQLCodegenPluginLogger {
   debug(message: string, properties?: Record<string, unknown>): void;
@@ -29,6 +35,8 @@ export interface GraphQLCodegenPluginLogger {
 
 export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, "schema"> {
   readonly output: string;
+  readonly definition?: GraphQLHMRDefinition | undefined;
+  readonly entry?: string | undefined;
   readonly schemaEntry?: string | undefined;
   readonly loadSchemaSDL?:
     | ((context: GraphQLCodegenPluginContext) => MaybePromise<string | GraphQLSchema>)
@@ -48,7 +56,10 @@ export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, 
 export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
   const logger = options.logger ?? noopLogger;
   const endpoint = options.endpoint ?? "/graphql";
+  const entry = options.entry;
+  const staticDefinition = options.definition;
   const schemaEntry = options.schemaEntry ?? "/src/schema.ts";
+  const schemaSource = entry ?? schemaEntry;
   const handlerEntry = options.handlerEntry ?? "/src/yoga.ts";
   const handlerExports = normalizeExports(
     options.handlerExport ?? ["createHandler", "createNodeHandler", "createYogaHandler"],
@@ -58,6 +69,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   let config: ResolvedConfig;
   let server: ViteDevServer | undefined;
+  let devDefinition: Promise<GraphQLHMRDefinition | undefined> | undefined;
   let handler: Promise<NodeHandler> | undefined;
   let refreshQueue: Promise<void> = Promise.resolve();
   let lastSDL: string | undefined;
@@ -102,6 +114,11 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   async function loadDevSchemaSDL(): Promise<string> {
     const context = devContext();
+    const hmr = await loadDefinition(context);
+    if (hmr) {
+      return normalizeSchema(await hmr.schema(context));
+    }
+
     if (options.loadSchemaSDL) {
       return normalizeSchema(await options.loadSchemaSDL(context));
     }
@@ -127,6 +144,12 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   async function loadHandler(): Promise<NodeHandler> {
     const context = devContext();
+    const hmr = await loadDefinition(context);
+    if (hmr?.handler) {
+      handler ??= Promise.resolve(hmr.handler(context));
+      return handler;
+    }
+
     if (options.loadHandler) {
       handler ??= Promise.resolve(options.loadHandler(context));
       return handler;
@@ -149,6 +172,25 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     return handler;
   }
 
+  async function loadDefinition(
+    context: GraphQLCodegenPluginContext,
+  ): Promise<GraphQLHMRDefinition | undefined> {
+    if (!entry) {
+      return staticDefinition;
+    }
+    devDefinition ??= (async () => {
+      const mod = await context.importModule<GraphQLHMREntry>(entry);
+      const definition = mod.default ?? mod.hmr;
+      if (!definition) {
+        throw new Error(
+          `[graphql-codegen] ${entry} must export default defineGraphQLHMR(...) or named hmr.`,
+        );
+      }
+      return definition;
+    })();
+    return devDefinition;
+  }
+
   function normalizeSchema(schema: string | GraphQLSchema): string {
     if (typeof schema === "string") {
       return schema;
@@ -164,7 +206,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
     if (!force && !schemaChanged) {
       logger.debug("Skipped GQLens codegen because SDL is unchanged.", {
-        schemaEntry,
+        schemaSource,
         durationMs: Math.round(performance.now() - startedAt),
       });
       return;
@@ -178,7 +220,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
     logger.info("Refreshed GQLens generated files.", {
       reason: force ? "startup" : "schema-changed",
-      schemaEntry,
+      schemaSource,
       output: options.output,
       durationMs: Math.round(performance.now() - startedAt),
       files: writeStats.total,
@@ -188,12 +230,13 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
   }
 
   async function generateBuildFiles(): Promise<void> {
-    if (!options.loadBuildSchemaSDL) {
+    const buildSchema = loadBuildSchema();
+    if (!buildSchema) {
       return;
     }
 
     const startedAt = performance.now();
-    const sdl = normalizeSchema(await options.loadBuildSchemaSDL());
+    const sdl = normalizeSchema(await buildSchema());
     const files = await generateFiles({
       schema: sdl,
       framework: options.framework,
@@ -215,6 +258,10 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       () => refreshGeneratedFiles(force),
     );
     return refreshQueue;
+  }
+
+  function loadBuildSchema(): (() => MaybePromise<GraphQLSchemaSource>) | undefined {
+    return options.loadBuildSchemaSDL ?? staticDefinition?.buildSchema;
   }
 
   return {
@@ -266,6 +313,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       }
 
       handler = undefined;
+      devDefinition = undefined;
       logger.debug("GraphQL-related module changed; refreshing handler and generated files.", {
         file: normalizePath(ctx.file),
       });
