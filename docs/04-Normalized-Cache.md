@@ -141,3 +141,11 @@ optimistic ─────┘
 不允许任何路径绕过 cache 直接通知 UI。
 
 这条约束让 query、live、mutation、optimistic update 可以共享同一套冲突和订阅语义。UI 不需要知道数据来自首次请求、后台刷新还是实时推送。
+
+## EntityRef 引用复用
+
+EntityRef（`{ type, id }`）在 normalize、syncSlots、writerRelationSlot 等多条路径被反复创建并写入 slot signal。每个 slot signal 由 alien-signals 驱动；alien-signals 在写入时用 `!==` 判断值是否变化，只在实际变化时通知订阅者。
+
+如果每次创建新 EntityRef 对象，即使 `type` 和 `id` 都相同，`!==` 也会判定为新值，导致无变化的 slot 仍触发通知。因此 cache 维护一个模块级 `type:id → EntityRef` 引用池：所有路径创建同一实体的 ref 时返回同一个对象引用。这样同一实体写入同一 slot 时 `!==` 命中旧值，跳过通知。
+
+这条优化只影响 slot signal 更新效率，不改变 cache 的任何语义——EntityRef 在全代码库中被当作纯值类型使用，所有读写仅依赖 `type` / `id` 属性，无引用身份依赖。

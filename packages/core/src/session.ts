@@ -405,10 +405,10 @@ function syncPathSlots(
       continue;
     }
 
-    const parentRef = isEntity(current) ? entityFrom(current) : undefined;
+    const parentRef = isEntity(current) ? entityFrom(cache, current) : undefined;
     current = current[step.responseKey ?? step.field];
     const nextStep = path.steps[index + 1];
-    const normalized = toSlotValue(current, isListIdentityStep(nextStep));
+    const normalized = toSlotValue(cache, current, isListIdentityStep(nextStep));
     if (normalized === undefined) {
       continue;
     }
@@ -499,6 +499,7 @@ function clearSlotSuffix(cache: NormalizedCache, key: string, suffix: string): v
 }
 
 function toSlotValue(
+  cache: NormalizedCache,
   value: unknown,
   expectsListIdentity: boolean,
 ): EntityRef | readonly EntityRef[] | null | undefined {
@@ -509,10 +510,10 @@ function toSlotValue(
     if (!expectsListIdentity && !value.some(isEntity)) {
       return undefined;
     }
-    return value.flatMap((item) => (isEntity(item) ? [entityFrom(item)] : []));
+    return value.flatMap((item) => (isEntity(item) ? [entityFrom(cache, item)] : []));
   }
   if (isEntity(value)) {
-    return entityFrom(value);
+    return entityFrom(cache, value);
   }
   return undefined;
 }
@@ -525,8 +526,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function entityFrom(value: Record<string, unknown>): EntityRef {
-  return { type: String(value["__typename"]), id: String(value["id"]) };
+function entityFrom(cache: NormalizedCache, value: Record<string, unknown>): EntityRef {
+  return cache.entity(String(value["__typename"]), String(value["id"]));
 }
 
 function isListPathFresh(

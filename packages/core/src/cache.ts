@@ -4,6 +4,18 @@ import type { EntityRef, FieldSignal, GraphQLResult, NormalizedCache } from "./t
 
 type FieldEntry<T = unknown> = FieldSignal<T>;
 
+const entityRefPool = new Map<string, EntityRef>();
+
+function canonicalEntityRef(type: string, id: string): EntityRef {
+  const key = `${type}:${id}`;
+  let ref = entityRefPool.get(key);
+  if (!ref) {
+    ref = { type, id };
+    entityRefPool.set(key, ref);
+  }
+  return ref;
+}
+
 export function createNormalizedCache(): NormalizedCache {
   const fields = new Map<string, FieldEntry>();
   const slots = new Map<string, FieldEntry>();
@@ -18,7 +30,7 @@ export function createNormalizedCache(): NormalizedCache {
     },
 
     entity(type: string, id: string): EntityRef {
-      return { type, id };
+      return canonicalEntityRef(type, id);
     },
 
     normalize(data: GraphQLResult, ttl = 0): void {
@@ -162,10 +174,7 @@ function normalizeEntity(
   slots: Map<string, FieldEntry>,
   expires: number,
 ): EntityRef {
-  const ref = {
-    type: String(entity["__typename"]),
-    id: String(entity["id"]),
-  };
+  const ref = canonicalEntityRef(String(entity["__typename"]), String(entity["id"]));
 
   for (const [key, value] of Object.entries(entity)) {
     if (isFieldValue(value)) {
