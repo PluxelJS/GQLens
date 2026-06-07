@@ -21,8 +21,10 @@ export default defineConfig({
   plugins: [
     graphqlCodegenPlugin({
       output: "web/gqlens",
-      definition: graphqlHMR,
-      entry: "/src/graphql-hmr.ts",
+      hmr: {
+        definition: graphqlHMR,
+        entry: "/src/graphql-hmr.ts",
+      },
       endpoint: graphQLEndpoint,
       include: graphQLRelatedFiles,
       framework: "react",

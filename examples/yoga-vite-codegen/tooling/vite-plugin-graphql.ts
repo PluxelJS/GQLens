@@ -1,5 +1,5 @@
 import { isAbsolute, join } from "node:path";
-import { printSchema, type GraphQLSchema } from "graphql";
+import { printSchema } from "graphql";
 import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { isRunnableDevEnvironment, normalizePath } from "vite";
@@ -7,7 +7,6 @@ import type {
   GraphQLCodegenPluginContext,
   GraphQLHMRDefinition,
   GraphQLSchemaSource,
-  MaybePromise,
   NodeHandler,
 } from "./graphql-hmr";
 import { writeGeneratedFiles } from "./write-generated-files";
@@ -15,16 +14,8 @@ import { writeGeneratedFiles } from "./write-generated-files";
 export { defineGraphQLHMR } from "./graphql-hmr";
 export type { GraphQLCodegenPluginContext, GraphQLHMRDefinition } from "./graphql-hmr";
 
-type SchemaEntry = {
-  readonly createSchema?: (() => MaybePromise<GraphQLSchema>) | undefined;
-  readonly createSchemaSDL?: (() => MaybePromise<string>) | undefined;
-  readonly schema?: GraphQLSchema | undefined;
-  readonly schemaSDL?: string | undefined;
-};
-
 type GraphQLHMREntry = {
-  readonly default?: GraphQLHMRDefinition | undefined;
-  readonly hmr?: GraphQLHMRDefinition | undefined;
+  readonly default?: GraphQLHMRDefinition;
 };
 
 export interface GraphQLCodegenPluginLogger {
@@ -35,41 +26,28 @@ export interface GraphQLCodegenPluginLogger {
 
 export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, "schema"> {
   readonly output: string;
-  readonly definition?: GraphQLHMRDefinition | undefined;
-  readonly entry?: string | undefined;
-  readonly schemaEntry?: string | undefined;
-  readonly loadSchemaSDL?:
-    | ((context: GraphQLCodegenPluginContext) => MaybePromise<string | GraphQLSchema>)
-    | undefined;
-  readonly loadBuildSchemaSDL?: (() => MaybePromise<string | GraphQLSchema>) | undefined;
-  readonly handlerEntry?: string | undefined;
-  readonly handlerExport?: string | readonly string[] | undefined;
-  readonly loadHandler?:
-    | ((context: GraphQLCodegenPluginContext) => MaybePromise<NodeHandler>)
-    | undefined;
+  readonly hmr: GraphQLHMRConfig;
   readonly endpoint?: string | undefined;
   readonly include?: readonly (string | RegExp)[] | undefined;
   readonly logger?: GraphQLCodegenPluginLogger | undefined;
   readonly middleware?: boolean | undefined;
 }
 
+export interface GraphQLHMRConfig {
+  readonly definition: GraphQLHMRDefinition;
+  readonly entry: string;
+}
+
 export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
   const logger = options.logger ?? noopLogger;
   const endpoint = options.endpoint ?? "/graphql";
-  const entry = options.entry;
-  const staticDefinition = options.definition;
-  const schemaEntry = options.schemaEntry ?? "/src/schema.ts";
-  const schemaSource = entry ?? schemaEntry;
-  const handlerEntry = options.handlerEntry ?? "/src/yoga.ts";
-  const handlerExports = normalizeExports(
-    options.handlerExport ?? ["createHandler", "createNodeHandler", "createYogaHandler"],
-  );
+  const hmr = options.hmr;
   const include = options.include ?? [/\/src\//];
   const enableMiddleware = options.middleware ?? true;
 
   let config: ResolvedConfig;
   let server: ViteDevServer | undefined;
-  let devDefinition: Promise<GraphQLHMRDefinition | undefined> | undefined;
+  let devDefinition: Promise<GraphQLHMRDefinition> | undefined;
   let handler: Promise<NodeHandler> | undefined;
   let refreshQueue: Promise<void> = Promise.resolve();
   let lastSDL: string | undefined;
@@ -114,76 +92,31 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   async function loadDevSchemaSDL(): Promise<string> {
     const context = devContext();
-    const hmr = await loadDefinition(context);
-    if (hmr) {
-      return normalizeSchema(await hmr.schema(context));
-    }
-
-    if (options.loadSchemaSDL) {
-      return normalizeSchema(await options.loadSchemaSDL(context));
-    }
-
-    const mod = await context.importModule<SchemaEntry>(schemaEntry);
-    if (typeof mod.createSchemaSDL === "function") {
-      return mod.createSchemaSDL();
-    }
-    if (typeof mod.schemaSDL === "string") {
-      return mod.schemaSDL;
-    }
-    if (typeof mod.createSchema === "function") {
-      return normalizeSchema(await mod.createSchema());
-    }
-    if (mod.schema) {
-      return normalizeSchema(mod.schema);
-    }
-
-    throw new Error(
-      `[graphql-codegen] ${schemaEntry} must export createSchemaSDL(), schemaSDL, createSchema(), or schema, or pass loadSchemaSDL().`,
-    );
+    const definition = await loadDefinition(context);
+    return normalizeSchema(await definition.schema(context));
   }
 
-  async function loadHandler(): Promise<NodeHandler> {
+  async function loadDevHandler(): Promise<NodeHandler> {
     const context = devContext();
-    const hmr = await loadDefinition(context);
-    if (hmr?.handler) {
-      handler ??= Promise.resolve(hmr.handler(context));
-      return handler;
+    const definition = await loadDefinition(context);
+    if (!definition.handler) {
+      throw new Error(
+        "[graphql-codegen] GraphQL middleware requires defineGraphQLHMR({ handler }). Set middleware: false when using an external GraphQL server.",
+      );
     }
-
-    if (options.loadHandler) {
-      handler ??= Promise.resolve(options.loadHandler(context));
-      return handler;
-    }
-
-    handler ??= (async () => {
-      const mod = await context.importModule<Record<string, unknown>>(handlerEntry);
-      const factory = handlerExports
-        .map((name) => mod[name])
-        .find((value) => typeof value === "function");
-      if (!factory) {
-        throw new Error(
-          `[graphql-codegen] ${handlerEntry} must export one of: ${handlerExports.join(", ")}.`,
-        );
-      }
-
-      return (factory as () => MaybePromise<NodeHandler>)();
-    })();
-
+    handler ??= Promise.resolve(definition.handler(context));
     return handler;
   }
 
   async function loadDefinition(
     context: GraphQLCodegenPluginContext,
-  ): Promise<GraphQLHMRDefinition | undefined> {
-    if (!entry) {
-      return staticDefinition;
-    }
+  ): Promise<GraphQLHMRDefinition> {
     devDefinition ??= (async () => {
-      const mod = await context.importModule<GraphQLHMREntry>(entry);
-      const definition = mod.default ?? mod.hmr;
+      const mod = await context.importModule<GraphQLHMREntry>(hmr.entry);
+      const definition = mod.default;
       if (!definition) {
         throw new Error(
-          `[graphql-codegen] ${entry} must export default defineGraphQLHMR(...) or named hmr.`,
+          `[graphql-codegen] ${hmr.entry} must default-export defineGraphQLHMR(...).`,
         );
       }
       return definition;
@@ -191,7 +124,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     return devDefinition;
   }
 
-  function normalizeSchema(schema: string | GraphQLSchema): string {
+  function normalizeSchema(schema: GraphQLSchemaSource): string {
     if (typeof schema === "string") {
       return schema;
     }
@@ -206,7 +139,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
     if (!force && !schemaChanged) {
       logger.debug("Skipped GQLens codegen because SDL is unchanged.", {
-        schemaSource,
+        entry: hmr.entry,
         durationMs: Math.round(performance.now() - startedAt),
       });
       return;
@@ -220,7 +153,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
     logger.info("Refreshed GQLens generated files.", {
       reason: force ? "startup" : "schema-changed",
-      schemaSource,
+      entry: hmr.entry,
       output: options.output,
       durationMs: Math.round(performance.now() - startedAt),
       files: writeStats.total,
@@ -230,13 +163,8 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
   }
 
   async function generateBuildFiles(): Promise<void> {
-    const buildSchema = loadBuildSchema();
-    if (!buildSchema) {
-      return;
-    }
-
     const startedAt = performance.now();
-    const sdl = normalizeSchema(await buildSchema());
+    const sdl = normalizeSchema(await hmr.definition.buildSchema());
     const files = await generateFiles({
       schema: sdl,
       framework: options.framework,
@@ -258,10 +186,6 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       () => refreshGeneratedFiles(force),
     );
     return refreshQueue;
-  }
-
-  function loadBuildSchema(): (() => MaybePromise<GraphQLSchemaSource>) | undefined {
-    return options.loadBuildSchemaSDL ?? staticDefinition?.buildSchema;
   }
 
   return {
@@ -294,7 +218,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
           }
 
           try {
-            const currentHandler = await loadHandler();
+            const currentHandler = await loadDevHandler();
             await currentHandler(req, res);
           } catch (error) {
             handler = undefined;
@@ -321,10 +245,6 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
       return ctx.modules;
     },
   };
-}
-
-function normalizeExports(value: string | readonly string[]): readonly string[] {
-  return typeof value === "string" ? [value] : value;
 }
 
 const noopLogger: GraphQLCodegenPluginLogger = {

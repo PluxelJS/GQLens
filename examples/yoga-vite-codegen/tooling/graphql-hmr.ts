@@ -15,12 +15,12 @@ export interface GraphQLCodegenPluginContext {
 
 export interface GraphQLHMRDefinition {
   readonly schema: (context: GraphQLCodegenPluginContext) => MaybePromise<GraphQLSchemaSource>;
-  readonly buildSchema?: (() => MaybePromise<GraphQLSchemaSource>) | undefined;
+  readonly buildSchema: () => MaybePromise<GraphQLSchemaSource>;
   readonly handler?:
     | ((context: GraphQLCodegenPluginContext) => MaybePromise<NodeHandler>)
     | undefined;
 }
 
-export function defineGraphQLHMR(definition: GraphQLHMRDefinition): GraphQLHMRDefinition {
+export function defineGraphQLHMR<const T extends GraphQLHMRDefinition>(definition: T): T {
   return definition;
 }

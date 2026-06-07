@@ -18,7 +18,7 @@
 ```txt
 src/
   graphql-hmr.ts           # typed HMR definition，schema/handler 合约
-  schema.ts                # schema entry，真实 TS
+  schema.ts                # schema module，真实 TS
   yoga.ts                  # Yoga handler factory，真实 TS
   context.ts               # context，真实 TS
   server.ts                # optional standalone backend
@@ -114,46 +114,32 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 
 ## 外部复用
 
-推荐外部项目也提供 typed entry，并在 Vite config 中同时传 `definition` 和 `entry`：
+外部项目也通过 typed entry 接入，并在 Vite config 中传入 `hmr.definition` 和 `hmr.entry`：
 
 ```ts
 import graphqlHMR from "./src/graphql-hmr";
 
 graphqlCodegenPlugin({
   output: "web/gqlens",
-  definition: graphqlHMR,
-  entry: "/src/graphql-hmr.ts",
+  hmr: {
+    definition: graphqlHMR,
+    entry: "/src/graphql-hmr.ts",
+  },
 });
 ```
 
-`definition` 给 build 使用，避免 build 阶段动态导入 TS entry；`entry` 给 dev 使用，让 Vite ModuleRunner 和 module graph 负责热更新。
+`definition` 给 build 使用，避免 build 阶段动态导入 TS entry；`entry` 给 dev 使用，让 Vite ModuleRunner 和 module graph 负责热更新。插件不再猜测 schema/handler 导出名，也不接受另一套 loader API。
 
-如果外部项目暂时不想写 typed entry，插件仍可从 `schemaEntry` 读取以下导出，按顺序使用：
-
-1. `createSchemaSDL()`
-2. `schemaSDL`
-3. `createSchema()`
-4. `schema`
-
-对 GQLoom 或其他 code-first schema，推荐在 schema entry 内部导出 SDL 字符串，确保 `printSchema()` 和 schema 构造使用同一个 GraphQL instance：
+对 GQLoom 或其他 code-first schema，typed entry 返回 SDL 字符串即可，确保 `printSchema()` 和 schema 构造使用同一个 GraphQL instance：
 
 ```ts
-export function createSchemaSDL() {
-  return printSchema(weave(...));
-}
-```
+import { printSchema } from "graphql";
+import { weave } from "@gqloom/core";
 
-如果外部项目不想暴露固定导出名，也可以传自定义 loader：
-
-```ts
-graphqlCodegenPlugin({
-  output: "web/gqlens",
-  loadBuildSchemaSDL: createSchemaSDL,
-  loadSchemaSDL: async (context) => {
-    const mod = await context.importModule<typeof import("./src/schema")>("/src/schema.ts");
-    return mod.createSchemaSDL();
-  },
-  loadHandler: async (context) => {
+export default defineGraphQLHMR({
+  schema: () => printSchema(weave(...)),
+  buildSchema: () => printSchema(weave(...)),
+  handler: async (context) => {
     const mod = await context.importModule<typeof import("./src/yoga")>("/src/yoga.ts");
     return mod.createYogaHandler();
   },
@@ -167,13 +153,13 @@ graphqlCodegenPlugin({
 插件只做有限职责：
 
 1. 监听 GraphQL 相关真实模块的变更。
-2. 通过 Vite SSR module graph 重新加载 typed HMR entry 或 schema entry。
+2. 通过 Vite SSR module graph 重新加载 typed HMR entry。
 3. 将 schema source 规范化为 SDL。
 4. 对 SDL 做内存 diff。
 5. 在 SDL 变化时触发 GQLens codegen。
 6. 对 generated TS 文件做 content-diff 写入。
 7. 在 dev middleware 中懒加载并缓存 Yoga handler，相关文件变更后清空缓存。
-8. 在 buildStart 中使用静态 typed definition 或 `loadBuildSchemaSDL()` 生成一次文件。
+8. 在 buildStart 中使用静态 typed definition 生成一次文件。
 
 不做：
 

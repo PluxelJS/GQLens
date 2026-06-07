@@ -21,8 +21,10 @@ import graphqlHMR from "./src/graphql-hmr";
 
 graphqlCodegenPlugin({
   output: "web/gqlens",
-  definition: graphqlHMR,
-  entry: "/src/graphql-hmr.ts",
+  hmr: {
+    definition: graphqlHMR,
+    entry: "/src/graphql-hmr.ts",
+  },
   endpoint: "/graphql",
   include: graphQLRelatedFiles,
   framework: "react",
@@ -56,8 +58,6 @@ export function createSchemaSDL() {
   return printSchema(weave(...));
 }
 ```
-
-如果外部项目不想使用 typed entry，也可以退回显式 loader：传 `loadSchemaSDL(context)` / `loadHandler(context)`，通过 `context.importModule()` 使用 Vite SSR ModuleRunner 导入自己的模块。插件仍保留 `schemaEntry` / `handlerEntry` 的默认导出名兜底，但示例主路径不依赖这种猜测。
 
 插件本身不依赖 LogTape；这个 example 只是通过 `logger` 选项把本地日志注入进去。
 
