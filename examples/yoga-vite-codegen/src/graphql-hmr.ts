@@ -1,5 +1,5 @@
-import { defineGraphQLHMR } from "../tooling/graphql-hmr";
-import { createSchemaSDL } from "./schema";
+import { defineGraphQLHMR } from "../tooling/graphql-hmr.ts";
+import { createSchemaSDL } from "./schema.ts";
 
 export default defineGraphQLHMR({
   schema: () => createSchemaSDL(),

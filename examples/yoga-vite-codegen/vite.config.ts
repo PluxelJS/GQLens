@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-import graphqlHMR from "./src/graphql-hmr";
 import { configureExampleLogging, getExampleLogger } from "./src/logging";
 import { graphqlCodegenPlugin } from "./tooling/vite-plugin-graphql";
 
@@ -21,10 +20,7 @@ export default defineConfig({
   plugins: [
     graphqlCodegenPlugin({
       output: "web/gqlens",
-      hmr: {
-        definition: graphqlHMR,
-        entry: "/src/graphql-hmr.ts",
-      },
+      entry: "/src/graphql-hmr.ts",
       endpoint: graphQLEndpoint,
       include: graphQLRelatedFiles,
       framework: "react",

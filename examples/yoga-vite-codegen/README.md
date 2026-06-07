@@ -9,22 +9,17 @@
 - dev 下 Vite ModuleRunner 重新 import `src/graphql-hmr.ts`，拿到 typed HMR definition，打印 SDL，并用内存里的上一次 SDL 判断类型系统是否变化。
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
 - Vite dev server 同时承载前端、`/graphql` middleware、schema diff 和 codegen HMR。
-- build 下没有 ModuleRunner，所以 `vite.config.ts` 在 `buildStart` 里直接调用 `generateFiles()`。
+- build 下直接 native import 同一个 HMR entry 的 default export，并在 `buildStart` 里调用 `generateFiles()`。
 - dev 插件只用 Vite `handleHotUpdate`，不维护额外依赖图。
 
 ## 关键配置
 
-`vite.config.ts` 只注册一个应用侧 Vite 插件。`src/graphql-hmr.ts` 用 `defineGraphQLHMR()` 声明 schema、build schema 和 handler；dev 下插件通过 Vite SSR ModuleRunner 重新加载这个真实 TS entry，build 下则使用 config 里静态传入的 typed definition：
+`vite.config.ts` 只注册一个应用侧 Vite 插件。`src/graphql-hmr.ts` 用 `defineGraphQLHMR()` 声明 schema、build schema 和 handler；dev 下插件通过 Vite SSR ModuleRunner 重新加载这个真实 TS entry，build 下通过 Node native import 读取同一个 default export：
 
 ```ts
-import graphqlHMR from "./src/graphql-hmr";
-
 graphqlCodegenPlugin({
   output: "web/gqlens",
-  hmr: {
-    definition: graphqlHMR,
-    entry: "/src/graphql-hmr.ts",
-  },
+  entry: "/src/graphql-hmr.ts",
   endpoint: "/graphql",
   include: graphQLRelatedFiles,
   framework: "react",
@@ -35,8 +30,8 @@ graphqlCodegenPlugin({
 HMR entry 本身是普通 TypeScript 文件，IDE 可以直接推导 loader/handler 签名：
 
 ```ts
-import { defineGraphQLHMR } from "../tooling/graphql-hmr";
-import { createSchemaSDL } from "./schema";
+import { defineGraphQLHMR } from "../tooling/graphql-hmr.ts";
+import { createSchemaSDL } from "./schema.ts";
 
 export default defineGraphQLHMR({
   schema: () => createSchemaSDL(),
@@ -47,6 +42,8 @@ export default defineGraphQLHMR({
   },
 });
 ```
+
+因为 build 阶段会用 Node native import 读取这个 entry，entry 中参与 `buildSchema()` 的运行时 import 需要是 Node ESM 可解析的路径。示例在 `tsconfig.json` 开启 `allowImportingTsExtensions`，并在 entry 里使用 `.ts` 后缀 import。
 
 在 monorepo/link 或 GQLoom 这类 code-first 场景里，最稳的是让 schema 模块自己用同一份 `graphql` 打印 SDL，再由 HMR entry 返回字符串：
 

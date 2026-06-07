@@ -1,4 +1,5 @@
 import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { printSchema } from "graphql";
 import { generateFiles, type GenerateFilesOptions } from "../../../packages/codegen/src/index";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
@@ -15,7 +16,7 @@ export { defineGraphQLHMR } from "./graphql-hmr";
 export type { GraphQLCodegenPluginContext, GraphQLHMRDefinition } from "./graphql-hmr";
 
 type GraphQLHMREntry = {
-  readonly default?: GraphQLHMRDefinition;
+  readonly default?: unknown;
 };
 
 export interface GraphQLCodegenPluginLogger {
@@ -26,22 +27,17 @@ export interface GraphQLCodegenPluginLogger {
 
 export interface GraphQLCodegenPluginOptions extends Omit<GenerateFilesOptions, "schema"> {
   readonly output: string;
-  readonly hmr: GraphQLHMRConfig;
+  readonly entry: string;
   readonly endpoint?: string | undefined;
   readonly include?: readonly (string | RegExp)[] | undefined;
   readonly logger?: GraphQLCodegenPluginLogger | undefined;
   readonly middleware?: boolean | undefined;
 }
 
-export interface GraphQLHMRConfig {
-  readonly definition: GraphQLHMRDefinition;
-  readonly entry: string;
-}
-
 export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plugin {
   const logger = options.logger ?? noopLogger;
   const endpoint = options.endpoint ?? "/graphql";
-  const hmr = options.hmr;
+  const entry = options.entry;
   const include = options.include ?? [/\/src\//];
   const enableMiddleware = options.middleware ?? true;
 
@@ -61,6 +57,13 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   function rootPath(value: string): string {
     return isAbsolute(value) ? value : join(config.root, value);
+  }
+
+  function entryPath(): string {
+    if (entry.startsWith("/") && !normalizePath(entry).startsWith(normalizePath(config.root))) {
+      return join(config.root, entry.slice(1));
+    }
+    return rootPath(entry);
   }
 
   function isGraphQLRequest(url: string | undefined): boolean {
@@ -92,13 +95,13 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   async function loadDevSchemaSDL(): Promise<string> {
     const context = devContext();
-    const definition = await loadDefinition(context);
+    const definition = await loadDevDefinition(context);
     return normalizeSchema(await definition.schema(context));
   }
 
   async function loadDevHandler(): Promise<NodeHandler> {
     const context = devContext();
-    const definition = await loadDefinition(context);
+    const definition = await loadDevDefinition(context);
     if (!definition.handler) {
       throw new Error(
         "[graphql-codegen] GraphQL middleware requires defineGraphQLHMR({ handler }). Set middleware: false when using an external GraphQL server.",
@@ -108,20 +111,19 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     return handler;
   }
 
-  async function loadDefinition(
+  async function loadDevDefinition(
     context: GraphQLCodegenPluginContext,
   ): Promise<GraphQLHMRDefinition> {
     devDefinition ??= (async () => {
-      const mod = await context.importModule<GraphQLHMREntry>(hmr.entry);
-      const definition = mod.default;
-      if (!definition) {
-        throw new Error(
-          `[graphql-codegen] ${hmr.entry} must default-export defineGraphQLHMR(...).`,
-        );
-      }
-      return definition;
+      const mod = await context.importModule<GraphQLHMREntry>(entry);
+      return readHMRDefinition(mod.default, entry);
     })();
     return devDefinition;
+  }
+
+  async function loadBuildDefinition(): Promise<GraphQLHMRDefinition> {
+    const mod = (await import(pathToFileURL(entryPath()).href)) as GraphQLHMREntry;
+    return readHMRDefinition(mod.default, entry);
   }
 
   function normalizeSchema(schema: GraphQLSchemaSource): string {
@@ -139,7 +141,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
     if (!force && !schemaChanged) {
       logger.debug("Skipped GQLens codegen because SDL is unchanged.", {
-        entry: hmr.entry,
+        entry,
         durationMs: Math.round(performance.now() - startedAt),
       });
       return;
@@ -153,7 +155,7 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
     const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
     logger.info("Refreshed GQLens generated files.", {
       reason: force ? "startup" : "schema-changed",
-      entry: hmr.entry,
+      entry,
       output: options.output,
       durationMs: Math.round(performance.now() - startedAt),
       files: writeStats.total,
@@ -164,7 +166,8 @@ export function graphqlCodegenPlugin(options: GraphQLCodegenPluginOptions): Plug
 
   async function generateBuildFiles(): Promise<void> {
     const startedAt = performance.now();
-    const sdl = normalizeSchema(await hmr.definition.buildSchema());
+    const definition = await loadBuildDefinition();
+    const sdl = normalizeSchema(await definition.buildSchema());
     const files = await generateFiles({
       schema: sdl,
       framework: options.framework,
@@ -252,6 +255,28 @@ const noopLogger: GraphQLCodegenPluginLogger = {
   info: noop,
   error: noop,
 };
+
+function readHMRDefinition(value: unknown, source: string): GraphQLHMRDefinition {
+  if (
+    !isObject(value) ||
+    typeof value.schema !== "function" ||
+    typeof value.buildSchema !== "function"
+  ) {
+    throw new Error(
+      `[graphql-codegen] ${source} must default-export defineGraphQLHMR({ schema, buildSchema, ... }).`,
+    );
+  }
+
+  if ("handler" in value && value.handler !== undefined && typeof value.handler !== "function") {
+    throw new Error(`[graphql-codegen] ${source} handler must be a function when provided.`);
+  }
+
+  return value as unknown as GraphQLHMRDefinition;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 function noop(): void {
   return undefined;

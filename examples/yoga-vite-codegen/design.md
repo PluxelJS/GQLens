@@ -47,8 +47,8 @@ import { createSchema } from "./schema";
 Vite 插件通过 typed HMR entry 连接两者：
 
 ```ts
-import { defineGraphQLHMR } from "../tooling/graphql-hmr";
-import { createSchemaSDL } from "./schema";
+import { defineGraphQLHMR } from "../tooling/graphql-hmr.ts";
+import { createSchemaSDL } from "./schema.ts";
 
 export default defineGraphQLHMR({
   schema: () => createSchemaSDL(),
@@ -97,6 +97,8 @@ next request imports /src/graphql-hmr.ts again
 
 vite build
         ↓
+native import /src/graphql-hmr.ts default export
+        ↓
 hmr.buildSchema()
         ↓
 run GQLens codegen
@@ -114,21 +116,18 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 
 ## 外部复用
 
-外部项目也通过 typed entry 接入，并在 Vite config 中传入 `hmr.definition` 和 `hmr.entry`：
+外部项目也通过 typed entry 接入，Vite config 只需要传入口路径：
 
 ```ts
-import graphqlHMR from "./src/graphql-hmr";
-
 graphqlCodegenPlugin({
   output: "web/gqlens",
-  hmr: {
-    definition: graphqlHMR,
-    entry: "/src/graphql-hmr.ts",
-  },
+  entry: "/src/graphql-hmr.ts",
 });
 ```
 
-`definition` 给 build 使用，避免 build 阶段动态导入 TS entry；`entry` 给 dev 使用，让 Vite ModuleRunner 和 module graph 负责热更新。插件不再猜测 schema/handler 导出名，也不接受另一套 loader API。
+dev 阶段用 Vite ModuleRunner import 这个 entry，让 module graph 负责热更新；build 阶段用 Node native import 读取同一个 default export。插件不猜测 schema/handler 导出名，也不接受另一套 loader API。
+
+因为 build 阶段不经过 Vite transform，typed entry 中参与 `buildSchema()` 的运行时 import 必须能被 Node ESM 解析。示例通过 `.ts` 后缀 import 和 `allowImportingTsExtensions` 保证这一点。
 
 对 GQLoom 或其他 code-first schema，typed entry 返回 SDL 字符串即可，确保 `printSchema()` 和 schema 构造使用同一个 GraphQL instance：
 
@@ -159,7 +158,7 @@ export default defineGraphQLHMR({
 5. 在 SDL 变化时触发 GQLens codegen。
 6. 对 generated TS 文件做 content-diff 写入。
 7. 在 dev middleware 中懒加载并缓存 Yoga handler，相关文件变更后清空缓存。
-8. 在 buildStart 中使用静态 typed definition 生成一次文件。
+8. 在 buildStart 中 native import typed entry 并生成一次文件。
 
 不做：
 
