@@ -234,6 +234,48 @@ describe("NormalizedCache", () => {
     expect(cache.isCached(ref, "name")).toBe(false);
     expect(cache.isSlotCached("Query.viewer")).toBe(false);
   });
+
+  test("overlapping normalize calls merge fields without erasing absent ones", () => {
+    const cache = createNormalizedCache();
+    const ref = cache.entity("User", "1");
+
+    cache.normalize({
+      user: { __typename: "User", id: "1", name: "Alice", avatar: "url1" },
+    });
+    expect(cache.field<string>(ref, "name").sig()).toBe("Alice");
+    expect(cache.field<string>(ref, "avatar").sig()).toBe("url1");
+
+    cache.normalize({ user: { __typename: "User", id: "1", name: "Bob" } });
+
+    expect(cache.field<string>(ref, "name").sig()).toBe("Bob");
+    expect(cache.field<string>(ref, "avatar").sig()).toBe("url1");
+  });
+
+  test("normalize with nested recursion handles repeated entities safely", () => {
+    const cache = createNormalizedCache();
+
+    cache.normalize({
+      a: {
+        __typename: "A",
+        id: "1",
+        b: { __typename: "B", id: "1", name: "Beta" },
+      },
+    });
+    expect(cache.field<string>(cache.entity("A", "1"), "id").sig()).toBe("1");
+    expect(cache.field<string>(cache.entity("B", "1"), "name").sig()).toBe("Beta");
+
+    cache.normalize({
+      b: {
+        __typename: "B",
+        id: "1",
+        name: "Beta2",
+        a: { __typename: "A", id: "1", label: "Alpha" },
+      },
+    });
+
+    expect(cache.field<string>(cache.entity("B", "1"), "name").sig()).toBe("Beta2");
+    expect(cache.field<string>(cache.entity("A", "1"), "label").sig()).toBe("Alpha");
+  });
 });
 
 // ─── SelectionCollector ────────────────────────────────────────────────────
@@ -537,6 +579,51 @@ describe("Planner", () => {
     const op = plan([p([{ field: "viewer" }, { field: "name" }])]);
     expect(op.query).toContain("viewer {");
   });
+
+  test("renders deeply nested inline fragments from $on chains", () => {
+    const metadata = {
+      roots: {
+        node: { returnsEntity: true, graphQLType: "Node", args: { id: "ID!" } },
+      },
+      types: {
+        Node: { __typename: { returnsEntity: false, possibleTypes: ["A", "B", "C"] } },
+        A: {
+          id: { returnsEntity: false },
+          b: { returnsEntity: true, graphQLType: "Node" },
+        },
+        B: {
+          id: { returnsEntity: false },
+          c: { returnsEntity: true, graphQLType: "Node" },
+        },
+        C: { name: { returnsEntity: false } },
+      },
+    } as Parameters<typeof plan>[2];
+
+    const op = plan(
+      [
+        p([
+          { field: "node", args: { id: "1" } },
+          { field: "$on", typeCondition: "A" },
+          { field: "b" },
+          { field: "$on", typeCondition: "B" },
+          { field: "c" },
+          { field: "$on", typeCondition: "C" },
+          { field: "name" },
+        ]),
+      ],
+      "query",
+      metadata,
+    );
+
+    expect(op.query).toContain("node(id:");
+    expect(op.query).toContain("... on A");
+    expect(op.query).toContain("... on B");
+    expect(op.query).toContain("... on C");
+    expect(op.query).toContain("name");
+    expect(op.query).not.toContain("$on");
+    expect(op.selections[0]?.steps[0]?.field).toBe("node");
+    expect(op.selections[0]?.steps[1]?.typeCondition).toBe("A");
+  });
 });
 
 // ─── QuerySession ──────────────────────────────────────────────────────────
@@ -560,6 +647,20 @@ describe("QuerySession", () => {
     const cache = createNormalizedCache();
     const session = createQuerySession(cache, async () => ({}));
     expect(session.error()).toBeNull();
+  });
+
+  test("sets error when fetcher rejects", async () => {
+    const cache = createNormalizedCache();
+    const session = createQuerySession(cache, async () => {
+      throw new Error("network down");
+    });
+    const reader = session.mount();
+    session.select(reader, p([{ field: "user", args: { id: "1" } }, { field: "name" }]));
+    session.schedule();
+    await nextMacrotask();
+
+    expect(session.error()).toBeInstanceOf(Error);
+    expect(session.error()!.message).toBe("network down");
   });
 
   test("unmount does not throw for unknown reader", () => {
