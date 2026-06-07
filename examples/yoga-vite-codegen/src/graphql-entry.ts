@@ -1,11 +1,10 @@
-import { defineGraphQLHMR } from "../tooling/graphql-hmr.ts";
+import type { GraphQLPluginEntry } from "../tooling/graphql-entry.ts";
 import { createSchemaSDL } from "./schema.ts";
 
-export default defineGraphQLHMR({
-  schema: () => createSchemaSDL(),
-  buildSchema: createSchemaSDL,
+export default {
+  schema: createSchemaSDL,
   handler: async (context) => {
     const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
     return mod.createYogaHandler();
   },
-});
+} satisfies GraphQLPluginEntry;

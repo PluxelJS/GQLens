@@ -20,7 +20,7 @@ export default defineConfig({
   plugins: [
     graphqlCodegenPlugin({
       output: "web/gqlens",
-      entry: "/src/graphql-hmr.ts",
+      entry: "/src/graphql-entry.ts",
       endpoint: graphQLEndpoint,
       include: graphQLRelatedFiles,
       framework: "react",

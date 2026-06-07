@@ -17,7 +17,7 @@
 
 ```txt
 src/
-  graphql-hmr.ts           # typed HMR definition，schema/handler 合约
+  graphql-entry.ts         # typed plugin entry，schema/handler 合约
   schema.ts                # schema module，真实 TS
   yoga.ts                  # Yoga handler factory，真实 TS
   context.ts               # context，真实 TS
@@ -44,20 +44,19 @@ import { useQuery, api } from "../gqlens/accessor";
 import { createSchema } from "./schema";
 ```
 
-Vite 插件通过 typed HMR entry 连接两者：
+Vite 插件通过 typed GraphQL entry 连接两者：
 
 ```ts
-import { defineGraphQLHMR } from "../tooling/graphql-hmr.ts";
+import type { GraphQLPluginEntry } from "../tooling/graphql-entry.ts";
 import { createSchemaSDL } from "./schema.ts";
 
-export default defineGraphQLHMR({
+export default {
   schema: () => createSchemaSDL(),
-  buildSchema: createSchemaSDL,
   handler: async (context) => {
     const mod = await context.importModule<typeof import("./yoga")>("/src/yoga.ts");
     return mod.createYogaHandler();
   },
-});
+} satisfies GraphQLPluginEntry;
 ```
 
 `virtual:` 模块只允许作为工具内部胶水，不作为用户 API。
@@ -69,9 +68,9 @@ src/* changed
         ↓
 Vite invalidates SSR module graph
         ↓
-插件重新加载 /src/graphql-hmr.ts
+插件重新加载 /src/graphql-entry.ts
         ↓
-hmr.schema()
+entry.schema()
         ↓
 normalize SDL
         ↓
@@ -93,13 +92,13 @@ current Yoga handler
         ↓
 src/* change clears handler cache
         ↓
-next request imports /src/graphql-hmr.ts again
+next request imports /src/graphql-entry.ts again
 
 vite build
         ↓
-native import /src/graphql-hmr.ts default export
+native import /src/graphql-entry.ts default export
         ↓
-hmr.buildSchema()
+entry.schema()
         ↓
 run GQLens codegen
         ↓
@@ -121,13 +120,13 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 ```ts
 graphqlCodegenPlugin({
   output: "web/gqlens",
-  entry: "/src/graphql-hmr.ts",
+  entry: "/src/graphql-entry.ts",
 });
 ```
 
 dev 阶段用 Vite ModuleRunner import 这个 entry，让 module graph 负责热更新；build 阶段用 Node native import 读取同一个 default export。插件不猜测 schema/handler 导出名，也不接受另一套 loader API。
 
-因为 build 阶段不经过 Vite transform，typed entry 中参与 `buildSchema()` 的运行时 import 必须能被 Node ESM 解析。示例通过 `.ts` 后缀 import 和 `allowImportingTsExtensions` 保证这一点。
+因为 build 阶段不经过 Vite transform，typed entry 中参与 `schema()` 的运行时 import 必须能被 Node ESM 解析。示例通过 `.ts` 后缀 import 和 `allowImportingTsExtensions` 保证这一点。
 
 对 GQLoom 或其他 code-first schema，typed entry 返回 SDL 字符串即可，确保 `printSchema()` 和 schema 构造使用同一个 GraphQL instance：
 
@@ -135,14 +134,13 @@ dev 阶段用 Vite ModuleRunner import 这个 entry，让 module graph 负责热
 import { printSchema } from "graphql";
 import { weave } from "@gqloom/core";
 
-export default defineGraphQLHMR({
+export default {
   schema: () => printSchema(weave(...)),
-  buildSchema: () => printSchema(weave(...)),
   handler: async (context) => {
     const mod = await context.importModule<typeof import("./src/yoga")>("/src/yoga.ts");
     return mod.createYogaHandler();
   },
-});
+} satisfies GraphQLPluginEntry;
 ```
 
 插件本身只接受一个可选 logger 接口，不依赖 LogTape 或 example 应用代码；外部工具可以注入自己的日志实现，也可以完全不传。
@@ -152,13 +150,13 @@ export default defineGraphQLHMR({
 插件只做有限职责：
 
 1. 监听 GraphQL 相关真实模块的变更。
-2. 通过 Vite SSR module graph 重新加载 typed HMR entry。
+2. 通过 Vite SSR module graph 重新加载 typed GraphQL entry。
 3. 将 schema source 规范化为 SDL。
 4. 对 SDL 做内存 diff。
 5. 在 SDL 变化时触发 GQLens codegen。
 6. 对 generated TS 文件做 content-diff 写入。
 7. 在 dev middleware 中懒加载并缓存 Yoga handler，相关文件变更后清空缓存。
-8. 在 buildStart 中 native import typed entry 并生成一次文件。
+8. 在 buildStart 中 native import typed GraphQL entry 并生成一次文件。
 
 不做：
 
