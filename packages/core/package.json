@@ -31,10 +31,10 @@
     }
   },
   "scripts": {
-    "publish": "pnpm publish --provenance --access public --no-git-checks",
+    "publish": "pnpm publish --access public --no-git-checks",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsdown --minify"
+    "build": "tsdown"
   },
   "dependencies": {
     "alien-signals": "^3.2"

@@ -1,6 +1,7 @@
 import { defineConfig } from "tsdown";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
+  minify: true,
   entry: {
     index: "src/index.ts",
     codegen: "codegen/index.ts",

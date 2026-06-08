@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "publish": "turbo run publish",
+    "publish:all": "turbo run publish",
     "lint": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives packages",
     "format": "oxfmt --check .",
     "format:write": "oxfmt --write .",

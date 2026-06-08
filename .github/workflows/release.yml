@@ -28,3 +28,5 @@ jobs:
 
       - name: Publish all packages
         run: pnpm run publish
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
