@@ -270,6 +270,53 @@ describe("Solid adapter", () => {
   });
 });
 
+describe("lifecycle", () => {
+  test("dispose unregisters reader and stops signal watches", () => {
+    const cache = createNormalizedCache();
+    const sig = createSignal("hello");
+
+    createRoot((dispose) => {
+      const state = createQuery({ cache });
+      const unmountSpy = vi.spyOn(state.session, "unmount");
+      expect(state.read(sig)).toBe("hello");
+
+      dispose();
+
+      expect(unmountSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("dispose allows re-creation of a new reader scope", () => {
+    const cache = createNormalizedCache();
+
+    createRoot((dispose) => {
+      const state = createQuery({ cache });
+      state.demand("Query", [{ field: "viewer" }]);
+      dispose();
+
+      const state2 = createQuery({ cache });
+      const unmountSpy2 = vi.spyOn(state2.session, "unmount");
+      state2.demand("Query", [{ field: "user" }]);
+      expect(unmountSpy2).not.toHaveBeenCalled();
+      unmountSpy2.mockRestore();
+    });
+  });
+
+  test("dispose cleans up signal subscription", () => {
+    const cache = createNormalizedCache();
+    const sig = createSignal("first");
+
+    createRoot((dispose) => {
+      const state = createQuery({ cache });
+      expect(state.read(sig)).toBe("first");
+
+      dispose();
+
+      expect(() => sig("second")).not.toThrow();
+    });
+  });
+});
+
 function nextMacrotask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }

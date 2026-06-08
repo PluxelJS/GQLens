@@ -2,7 +2,12 @@ import { describe, expect, test, vi, afterEach } from "vitest";
 import { createElement } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { GQLensProvider, useQuery, useLiveQuery, useMutation } from "@gqlens/react";
-import { createSignal, type Fetcher, type LiveSubscriber } from "@gqlens/core";
+import {
+  createNormalizedCache,
+  createSignal,
+  type Fetcher,
+  type LiveSubscriber,
+} from "@gqlens/core";
 
 function wrapper(overrides: Partial<Parameters<typeof GQLensProvider>[0]["config"]> = {}) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
@@ -366,6 +371,36 @@ describe("React adapter", () => {
         );
       });
       expect(fetcher).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe("lifecycle", () => {
+    test("unmounts reader on component cleanup", () => {
+      const cache = createNormalizedCache();
+      const { result, unmount } = renderHook(() => useQuery(), {
+        wrapper: wrapper({ cache }),
+      });
+      const session = result.current.session;
+      const unmountSpy = vi.spyOn(session, "unmount");
+      result.current.demand("Query", [{ field: "viewer" }]);
+
+      unmount();
+
+      expect(unmountSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test("cleans up signal subscriptions on unmount", () => {
+      const cache = createNormalizedCache();
+      const sig = createSignal("first");
+      const { result, unmount } = renderHook(() => useQuery().read(sig), {
+        wrapper: wrapper({ cache }),
+      });
+
+      expect(result.current).toBe("first");
+
+      unmount();
+
+      expect(() => act(() => sig("second"))).not.toThrow();
     });
   });
 });
