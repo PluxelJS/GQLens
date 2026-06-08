@@ -11,13 +11,13 @@
     "verify": "pnpm run lint && pnpm run format && turbo run typecheck build test"
   },
   "devDependencies": {
-    "@types/node": "^24.12.4",
-    "oxfmt": "^0.51.0",
-    "oxlint": "^1.66.0",
-    "tsdown": "^0.22.0",
-    "turbo": "^2.5.0",
+    "@types/node": "^25.9.2",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
+    "tsdown": "^0.22.2",
+    "turbo": "^2.9.16",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   },
   "engines": {
     "node": ">=24.12"
