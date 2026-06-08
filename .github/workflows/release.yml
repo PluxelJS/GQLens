@@ -27,6 +27,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Publish all packages
-        run: pnpm run publish
+        run: pnpm run publish:all
         env:
           NPM_CONFIG_PROVENANCE: "true"
