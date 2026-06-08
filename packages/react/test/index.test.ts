@@ -1,5 +1,5 @@
 import { describe, expect, test, vi, afterEach } from "vitest";
-import { createElement } from "react";
+import { createElement, StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { GQLensProvider, useQuery, useLiveQuery, useMutation } from "@gqlens/react";
 import {
@@ -387,6 +387,36 @@ describe("React adapter", () => {
       unmount();
 
       expect(unmountSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test("strict mode remounts reader correctly", async () => {
+      const cache = createNormalizedCache();
+      const fetcher = vi.fn<Fetcher>(async () => ({
+        viewer: { __typename: "User", id: "1", name: "Alice" },
+      }));
+
+      function StrictWrapper({ children }: { children: React.ReactNode }) {
+        return createElement(StrictMode, null, wrapper({ cache, fetcher })({ children }));
+      }
+
+      renderHook(
+        () => {
+          const state = useQuery({
+            policy: "network-only",
+            metadata: {
+              roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+              types: { User: { name: { returnsEntity: false } } },
+            },
+          });
+          state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
+          return state;
+        },
+        { wrapper: StrictWrapper },
+      );
+
+      await waitFor(() => {
+        expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+      });
     });
 
     test("cleans up signal subscriptions on unmount", () => {

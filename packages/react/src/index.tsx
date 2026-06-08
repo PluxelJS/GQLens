@@ -266,7 +266,6 @@ interface ReaderScope {
 }
 
 function useRenderTracking(session: QuerySession): ReaderScope {
-  const reader = useMemo(() => session.mount(), [session]);
   const signalsRef = useRef<Set<AlienSignalReader>>(new Set());
   const pathsRef = useRef<SelectionPath[]>([]);
   const [, forceRender] = useReducer((value: number) => value + 1, 0);
@@ -275,6 +274,7 @@ function useRenderTracking(session: QuerySession): ReaderScope {
   pathsRef.current = [];
 
   useLayoutEffect(() => {
+    const reader = session.mount();
     session.replace(reader, pathsRef.current);
     session.schedule();
     const unsubscribers = [...signalsRef.current].map((sig) => watchSignal(sig, forceRender));
@@ -282,15 +282,9 @@ function useRenderTracking(session: QuerySession): ReaderScope {
       for (const unsubscribe of unsubscribers) {
         unsubscribe();
       }
+      session.unmount(reader);
     };
   });
-
-  useEffect(
-    () => () => {
-      session.unmount(reader);
-    },
-    [reader, session],
-  );
 
   return useMemo(
     () => ({
@@ -302,7 +296,7 @@ function useRenderTracking(session: QuerySession): ReaderScope {
         return sig();
       },
     }),
-    [reader, session],
+    [],
   );
 }
 
