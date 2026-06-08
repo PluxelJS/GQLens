@@ -23,13 +23,13 @@ jobs:
           install: true
 
       - name: Install dependencies
-        run: aube install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: aube run lint
+        run: pnpm run lint
 
       - name: Format check
-        run: aube run format
+        run: pnpm run format
 
       - name: Type check, build & test
         run: turbo run typecheck build test

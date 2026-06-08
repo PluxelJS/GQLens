@@ -24,27 +24,7 @@ jobs:
           install: true
 
       - name: Install dependencies
-        run: aube install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Build all packages
-        run: turbo run build
-
-      - name: Publish @gqlens/core
-        run: npm publish --provenance --access public
-        working-directory: packages/core
-
-      - name: Publish @gqlens/codegen
-        run: npm publish --provenance --access public
-        working-directory: packages/codegen
-
-      - name: Publish @gqlens/react
-        run: npm publish --provenance --access public
-        working-directory: packages/react
-
-      - name: Publish @gqlens/solid
-        run: npm publish --provenance --access public
-        working-directory: packages/solid
-
-      - name: Publish @gqlens/vite
-        run: npm publish --provenance --access public
-        working-directory: packages/vite
+      - name: Publish all packages
+        run: pnpm run publish

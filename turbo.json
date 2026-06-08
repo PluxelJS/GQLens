@@ -6,6 +6,10 @@
       "outputs": ["dist/**"]
     },
     "typecheck": {},
-    "test": {}
+    "test": {},
+    "publish": {
+      "dependsOn": ["build"],
+      "cache": false
+    }
   }
 }
