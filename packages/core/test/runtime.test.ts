@@ -276,6 +276,23 @@ describe("NormalizedCache", () => {
     expect(cache.field<string>(cache.entity("B", "1"), "name").sig()).toBe("Beta2");
     expect(cache.field<string>(cache.entity("A", "1"), "label").sig()).toBe("Alpha");
   });
+
+  test("clear removes all fields and slots", () => {
+    const cache = createNormalizedCache();
+    const ref = cache.entity("User", "1");
+
+    cache.field(ref, "name").sig("Alice");
+    cache.slot("Query.viewer").sig({ type: "User", id: "1" });
+
+    expect(cache.isCached(ref, "name")).toBe(true);
+    expect(cache.isSlotCached("Query.viewer")).toBe(true);
+
+    cache.clear();
+
+    expect(cache.field(ref, "name").sig()).toBeUndefined();
+    expect(cache.isCached(ref, "name")).toBe(false);
+    expect(cache.isSlotCached("Query.viewer")).toBe(false);
+  });
 });
 
 // ─── SelectionCollector ────────────────────────────────────────────────────
@@ -340,6 +357,23 @@ describe("SelectionCollector", () => {
     const { added, removed } = collector.diff(prevSnapshot);
     expect(added).toHaveLength(1);
     expect(removed).toHaveLength(1);
+  });
+
+  test("reset clears all readers and their selections", () => {
+    const collector = createSelectionCollector();
+    const r1 = collector.register();
+    const r2 = collector.register();
+
+    collector.select(r1, makePath("Query", ["user", "name"]));
+    collector.select(r2, makePath("Query", ["viewer", "avatar"]));
+    expect(collector.snapshot()).toHaveLength(2);
+
+    collector.reset();
+    expect(collector.snapshot()).toHaveLength(0);
+
+    const r3 = collector.register();
+    collector.select(r3, makePath("Query", ["field"]));
+    expect(collector.snapshot()).toHaveLength(1);
   });
 });
 
@@ -1013,6 +1047,45 @@ describe("QuerySession", () => {
     await nextMacrotask();
 
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  test("cache-and-network returns stale data while re-fetching", async () => {
+    const cache = createNormalizedCache();
+    const names = ["Alice", "Bob"];
+    let call = -1;
+    const session = createQuerySession(
+      cache,
+      async () => {
+        call++;
+        return { viewer: { __typename: "User", id: "1", name: names[call] } };
+      },
+      {
+        policy: "cache-and-network",
+        metadata: {
+          roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+          types: { User: { name: { returnsEntity: false } } },
+        },
+      },
+    );
+    const reader = session.mount();
+    const path = [{ field: "viewer" }, { field: "name" }];
+
+    session.replace(reader, [{ root: "Query", steps: path }]);
+    session.schedule();
+    await nextMacrotask();
+    expect(cache.field<string>(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+
+    const ref = cache.entity("User", "1");
+    cache.invalidate(ref, ["name"]);
+
+    expect(cache.field<string>(ref, "name").sig()).toBe("Alice");
+
+    session.replace(reader, [{ root: "Query", steps: path }]);
+    session.schedule();
+    await nextMacrotask();
+
+    expect(cache.field<string>(ref, "name").sig()).toBe("Bob");
+    expect(call).toBe(1);
   });
 
   test("invalidate marks fields stale and schedules active demand", async () => {

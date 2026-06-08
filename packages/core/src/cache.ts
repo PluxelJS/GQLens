@@ -65,6 +65,11 @@ export function createNormalizedCache(): NormalizedCache {
     isSlotCached(key: string): boolean {
       return isFresh(slots.get(key));
     },
+
+    clear(): void {
+      fields.clear();
+      slots.clear();
+    },
   };
 }
 

@@ -28,6 +28,7 @@ export interface NormalizedCache {
   invalidateSlot(key: string): void;
   isCached(ref: EntityRef, fieldKey: string): boolean;
   isSlotCached(key: string): boolean;
+  clear(): void;
 }
 
 export interface SelectionPath {

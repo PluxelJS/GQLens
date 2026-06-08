@@ -342,6 +342,7 @@ function selectorCache(): NormalizedCache {
     invalidateSlot: selectorNoop,
     isCached: () => false,
     isSlotCached: () => false,
+    clear: selectorNoop,
   };
 }
 

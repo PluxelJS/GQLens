@@ -15,6 +15,7 @@ export interface SelectionCollector {
   replace(reader: ReaderHandle, paths: readonly SelectionPath[]): void;
   snapshot(): SelectionPath[];
   diff(prev: readonly SelectionPath[]): { added: SelectionPath[]; removed: SelectionPath[] };
+  reset(): void;
 }
 
 interface ReaderState {
@@ -94,6 +95,10 @@ export function createSelectionCollector(): SelectionCollector {
         added: curr.filter((path) => !prevSet.has(selectionKey(path))),
         removed: prev.filter((path) => !currSet.has(selectionKey(path))),
       };
+    },
+
+    reset(): void {
+      readers.clear();
     },
   };
 }
