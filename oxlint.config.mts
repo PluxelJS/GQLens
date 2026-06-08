@@ -2,7 +2,7 @@ import { defineConfig } from "oxlint";
 
 const config: ReturnType<typeof defineConfig> = defineConfig({
   plugins: ["typescript", "unicorn", "oxc", "import", "promise", "node", "vitest"],
-  jsPlugins: ["./packages/oxlint-plugin/src/index.ts"],
+  jsPlugins: ["./packages/core/oxlint/index.ts"],
   categories: {
     correctness: "error",
     suspicious: "error",
