@@ -4,6 +4,7 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
   entry: {
     index: "src/index.ts",
     codegen: "codegen/index.ts",
+    oxlint: "oxlint/index.ts",
   },
   outDir: "dist",
   format: "esm",
