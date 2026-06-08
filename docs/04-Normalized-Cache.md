@@ -99,10 +99,13 @@ interface NormalizedCache {
   invalidateSlot(key: string): void;
   isCached(ref: EntityRef, fieldKey: string): boolean;
   isSlotCached(key: string): boolean;
+  clear(): void;
 }
 ```
 
 `field()` 和 `slot()` 都返回带 TTL 元数据的 signal entry。adapter 只通过 `sig` 读写值；TTL / stale 判断留在 session 调度层处理。
+
+`clear()` 清空所有 field 和 slot 条目，不触动 EntityRef 引用池。适用场景：登出后清除用户数据、路由跳转重置缓存。
 
 ## TTL
 

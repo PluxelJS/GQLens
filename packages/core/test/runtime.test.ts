@@ -1214,6 +1214,42 @@ describe("QuerySession", () => {
     expect(session.loading()).toBe(false);
   });
 
+  test("live session sets error when subscribe throws synchronously", async () => {
+    const cache = createNormalizedCache();
+    const session = createLiveQuerySession(cache, () => {
+      throw new Error("subscribe failed");
+    });
+    const reader = session.mount();
+
+    session.replace(reader, [{ root: "Query", steps: [{ field: "viewer" }, { field: "name" }] }]);
+    session.schedule();
+    await nextMicrotask();
+
+    expect(session.error()).toBeInstanceOf(Error);
+    expect(session.error()!.message).toBe("subscribe failed");
+    expect(session.loading()).toBe(false);
+  });
+
+  test("live session sets error when subscribe fires onError", async () => {
+    const cache = createNormalizedCache();
+    let onErrorRef: ((reason: Error) => void) | undefined;
+    const session = createLiveQuerySession(cache, (_op, _onData, onError) => {
+      onErrorRef = onError;
+      return () => undefined;
+    });
+    const reader = session.mount();
+
+    session.replace(reader, [{ root: "Query", steps: [{ field: "viewer" }, { field: "name" }] }]);
+    session.schedule();
+    await nextMicrotask();
+
+    onErrorRef?.(new Error("connection lost"));
+
+    expect(session.error()).toBeInstanceOf(Error);
+    expect(session.error()!.message).toBe("connection lost");
+    expect(session.loading()).toBe(false);
+  });
+
   test("schedule writes args-sensitive relation list ids onto the owner relation slot", async () => {
     const cache = createNormalizedCache();
     const session = createQuerySession(
