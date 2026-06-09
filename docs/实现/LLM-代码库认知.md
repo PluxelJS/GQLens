@@ -80,14 +80,18 @@ packages/oxlint-plugin
 { type: "User", id: "1" }
 ```
 
-`InvalidationInput`：
+`CacheInvalidation`：
 
-- entity spec: `{ type, id, keys? }`
-- selector target: `{ kind: "selection", path }` or `{ kind: "root", root, steps }`
+- address target: `{ kind: "address", address, family? }`
+- entity target: `{ kind: "entity", ref, paths? }`
+- root target: `{ kind: "root", root, paths? }`
+- selector target: `{ kind: "selection", path, metadata? }`
 
 ## Cache 语义
 
 Normalized cache 在 `packages/core/src/cache.ts`。
+
+当前 `cache.ts` 仍是 schema-agnostic normalize：运行时 payload 含 `__typename + id` 时会被视为 entity。目标模型是 metadata-driven normalize，详见 [精进：Entity 识别策略](./精进-Entity识别策略.md)。
 
 实体字段：
 
@@ -107,8 +111,9 @@ User:1.posts({"first":10}).ids    -> readonly string[]
 
 规则：
 
-- 对象含 `__typename` + `id` 才进入 entity graph。
-- 无 identity 的嵌套对象按普通字段值保存，不递归拆成 entity。
+- schema object 有非空 scalar `id` 才进入 entity graph。
+- schema object 没有 `id` 时是 Value Object，以父 owner 为根递归拆到 embedded leaf signal。
+- 自定义 JSON scalar 和 scalar / enum list 仍作为单个 leaf field value，不按运行时对象结构递归拆分。
 - entity array 同时会写 relation slot、`.ids` 和 `.refs`；typed accessor 决定暴露哪一个。
 - `undefined` 表示 missing，`null` 表示服务端 null。
 - stale entry 保留旧值，只改 `expires`。
@@ -128,7 +133,7 @@ User:1.posts({"first":10}).ids    -> readonly string[]
 - list accessor：concrete list 暴露 `.ids`；abstract list 暴露 `.refs`。
 - `$on` accessor：由 schema metadata 生成分支；分支不匹配返回 `undefined`。
 - `defineSelection()` 只收集 paths 和 variable placeholder。
-- `defineInvalidation()` 返回 `InvalidationTarget`。
+- `defineInvalidation()` 返回 `CacheInvalidation`。
 
 不要让 accessor node 可枚举。`Object.keys(q.viewer)` / `JSON.stringify(q.viewer)` 应保持空对象语义。
 
@@ -157,7 +162,7 @@ User:1.posts({"first":10}).ids    -> readonly string[]
 
 位置：`packages/core/src/session.ts`
 
-`createQuerySession()`：
+`createQuerySession({ cache, fetcher, ...query })`：
 
 - 收集 active selection。
 - 根据 policy 判断 freshness。
@@ -166,7 +171,7 @@ User:1.posts({"first":10}).ids    -> readonly string[]
 - `cache.normalize(result)`。
 - `syncSlots()` 把 root/relation/list identity slot 写回原始 selection key。
 
-`createLiveQuerySession()`：
+`createLiveQuerySession({ cache, subscriber, ...query })`：
 
 - 同样使用 active selection + planner。
 - 用 subscriber 替代一次性 fetch。
@@ -184,11 +189,11 @@ Cache policy：
 
 `applyInvalidations(cache, invalidations, metadata?)` 支持：
 
-- entity spec：`cache.invalidate(EntityRef, keys)`
-- selector target：失效对应 slot、`.ids`、`.refs`
-- 如果 selector target 是 concrete root `q.user({ id }).name`，且 metadata 能定位类型，也会失效 `User:id.name`
+- `CacheInvalidation` target：`address` / `entity` / `root` / `selection`
+- `entity` target：失效整个 entity 或指定 `paths`
+- `selection` target：失效对应 root slot family；如果 metadata 能定位 concrete root entity，也会失效 owner entity address family
 
-React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。mutation runner 会应用 invalidation；React provider 传入额外策略，在成功后 refetch active sessions。
+React/Solid mutation options 的 `invalidates` 接受 `CacheInvalidation[]`。mutation runner 会应用 invalidation；React provider 传入额外策略，在成功后 refetch active sessions。
 
 ## Mutation Runner
 
@@ -200,9 +205,9 @@ React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。mu
 
 - 支持 operation descriptor 和 callback mutation。
 - operation descriptor 通过 fetcher 执行，并支持 GraphQL response envelope。
-- optimistic callback 直接操作 cache。
+- optimistic callback 通过 `CacheAddress` 读写 cache。
 - 成功后应用 invalidates，并 normalize server response。
-- 失败时按 snapshot rollback entity specs；selector targets 重新失效。
+- optimistic 写入在 `cache.transaction()` 中执行；失败时 rollback transaction，和 invalidation hints 解耦。
 
 框架适配器不应重新实现 snapshot / rollback / normalize 流程。React 只传入自定义 `invalidate`，用于 invalidation 后 refetch provider 内 active sessions；Solid 默认使用 core invalidation。
 
@@ -238,8 +243,7 @@ React/Solid mutation options 的 `invalidates` 接受 `InvalidationInput[]`。mu
 生成：
 
 - `normalizerEntries`
-- `EntityInvalidationSpec`
-- `InvalidationSpec = EntityInvalidationSpec | InvalidationTarget`
+- `Invalidation = CacheInvalidation`
 
 ## Vite Package
 

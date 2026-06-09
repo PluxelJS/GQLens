@@ -13,21 +13,54 @@ export interface EntityRef {
   readonly id: string;
 }
 
-export type SlotValue = EntityRef | readonly EntityRef[] | readonly string[] | null | undefined;
-
 export interface VariablePlaceholder {
   readonly __gqlensVariable: string;
 }
 
+export type CacheFacet = "value" | "link" | "ids" | "refs";
+
+export type CacheOwner =
+  | { readonly kind: "root"; readonly root: string }
+  | { readonly kind: "entity"; readonly ref: EntityRef };
+
+export interface CacheAddress {
+  readonly owner: CacheOwner;
+  readonly path: readonly SelectionStep[];
+  readonly facet?: CacheFacet | undefined;
+}
+
+export type CachePath = readonly SelectionStep[];
+
+export type CacheInvalidation =
+  | { readonly kind: "address"; readonly address: CacheAddress; readonly family?: boolean }
+  | { readonly kind: "entity"; readonly ref: EntityRef; readonly paths?: readonly CachePath[] }
+  | { readonly kind: "root"; readonly root: string; readonly paths?: readonly CachePath[] }
+  | {
+      readonly kind: "selection";
+      readonly path: SelectionPath;
+      readonly metadata?: PlannerMetadata | undefined;
+    };
+
+export interface CacheWriteOptions {
+  readonly ttl?: number | undefined;
+}
+
+export interface CacheTransaction<T = unknown> {
+  readonly result: T;
+  rollback(): void;
+}
+
 export interface NormalizedCache {
-  field<T = unknown>(ref: EntityRef, key: string): FieldSignal<T>;
-  slot<T = SlotValue>(key: string): FieldSignal<T>;
+  entry<T = unknown>(address: CacheAddress): FieldSignal<T>;
+  peek<T = unknown>(address: CacheAddress): FieldSignal<T> | undefined;
+  read<T = unknown>(address: CacheAddress): T | undefined;
+  write<T = unknown>(address: CacheAddress, value: T, options?: CacheWriteOptions): void;
+  isFresh(address: CacheAddress): boolean;
+  invalidate(target: CacheInvalidation | readonly CacheInvalidation[]): void;
+  transaction<T>(run: (cache: NormalizedCache) => T): CacheTransaction<T>;
+
   entity(type: string, id: string): EntityRef;
-  normalize(data: GraphQLResult, ttl?: number): void;
-  invalidate(ref: EntityRef, keys?: readonly string[]): void;
-  invalidateSlot(key: string): void;
-  isCached(ref: EntityRef, fieldKey: string): boolean;
-  isSlotCached(key: string): boolean;
+  normalize(data: GraphQLResult, ttl?: number, metadata?: PlannerMetadata): void;
   clear(): void;
 }
 
@@ -42,11 +75,20 @@ export interface SelectionStep {
   readonly typeCondition?: string | undefined;
 }
 
+/** Cache strategy used when a query session has active selections. */
 export type CachePolicy = "cache-first" | "cache-and-network" | "network-only";
 
-export interface QuerySessionConfig {
+/** Default query execution behavior shared by framework adapters. */
+export interface QueryDefaults {
+  /** How aggressively the session should read from cache before fetching. */
   readonly policy?: CachePolicy | undefined;
+  /** Freshness lifetime in milliseconds for normalized results written by the session. */
   readonly ttl?: number | undefined;
+}
+
+/** Core query-session execution config. Framework-level options live in adapter config types. */
+export interface QuerySessionConfig extends QueryDefaults {
+  /** Planner metadata generated from the GraphQL schema. Usually injected by generated accessors. */
   readonly metadata?: PlannerMetadata | undefined;
 }
 
@@ -62,6 +104,7 @@ export interface GraphQLOperation {
 export interface MutationOperation<TInput extends Record<string, unknown>, TData> {
   readonly operationName: string;
   readonly query: string;
+  readonly metadata?: PlannerMetadata | undefined;
   readonly result?: TData | undefined;
   variables(input: TInput): Record<string, unknown>;
 }
@@ -75,6 +118,7 @@ export interface PlannerMetadata {
 
 export interface PlannerFieldMetadata {
   readonly graphQLType?: string | undefined;
+  readonly targetObjectKind?: "entity" | "value" | undefined;
   readonly returnsEntity?: boolean | undefined;
   readonly returnsList?: boolean | undefined;
   readonly isAbstract?: boolean | undefined;
@@ -91,26 +135,14 @@ export interface PlannedSelectionStep extends SelectionStep {
   readonly responseKey?: string | undefined;
 }
 
-export type InvalidationSpec = {
-  readonly type: string;
-  readonly id: string;
-  readonly keys?: readonly string[] | undefined;
-};
-
 export interface PreparedSelection {
   readonly paths: readonly SelectionPath[];
   readonly variables: readonly string[];
 }
 
-export type InvalidationTarget =
-  | { readonly kind: "selection"; readonly path: SelectionPath }
-  | { readonly kind: "root"; readonly root: string; readonly steps: readonly SelectionStep[] };
-
-export type InvalidationInput = InvalidationSpec | InvalidationTarget;
-
 export interface MutationOptions {
   readonly optimistic?: ((cache: NormalizedCache) => void) | undefined;
-  readonly invalidates?: readonly InvalidationInput[] | undefined;
+  readonly invalidates?: readonly CacheInvalidation[] | undefined;
 }
 
 export type MutationSource<TInput extends Record<string, unknown>, TData> =

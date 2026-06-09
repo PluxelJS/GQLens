@@ -47,7 +47,14 @@ type FunctionFrame = {
   readonly selector: SelectorContext | null;
 };
 
-const runtimeEntryNames = new Set(["useQuery", "useLiveQuery", "createQuery", "createLiveQuery"]);
+const runtimeEntryNames = new Set([
+  "useQuery",
+  "useLiveQuery",
+  "usePreparedQuery",
+  "createQuery",
+  "createLiveQuery",
+  "createPreparedQuery",
+]);
 const selectorEntryNames = new Set(["defineSelection", "defineInvalidation"]);
 const objectOperationNames = new Set([
   "assign",

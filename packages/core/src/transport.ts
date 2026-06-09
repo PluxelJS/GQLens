@@ -1,4 +1,5 @@
-import type { GraphQLOperation } from "./types";
+import type { GraphQLOperation, GraphQLResult } from "./types";
+import { isRecord } from "./guards";
 
 export type Fetcher = (op: GraphQLOperation) => Promise<unknown>;
 export type LiveSubscriber = (
@@ -6,6 +7,13 @@ export type LiveSubscriber = (
   onData: (data: unknown) => void,
   onError?: ((error: Error) => void) | undefined,
 ) => () => void;
+
+export function readGraphQLData(data: unknown): GraphQLResult {
+  if (isRecord(data) && "data" in data && isRecord(data["data"])) {
+    return data["data"];
+  }
+  return (data ?? {}) as GraphQLResult;
+}
 
 interface LiveSocket {
   send(data: string): void;

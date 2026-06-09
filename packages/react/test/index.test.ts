@@ -1,13 +1,32 @@
 import { describe, expect, test, vi, afterEach } from "vitest";
 import { createElement, StrictMode } from "react";
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { GQLensProvider, useQuery, useLiveQuery, useMutation } from "@gqlens/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
+import {
+  GQLensProvider,
+  useQuery,
+  useLiveQuery,
+  usePreparedQuery,
+  useMutation,
+  type SessionState,
+} from "@gqlens/react";
 import {
   createNormalizedCache,
   createSignal,
   type Fetcher,
   type LiveSubscriber,
+  type PreparedSelection,
 } from "@gqlens/core";
+import { cacheField, cacheSlot } from "../../core/test/cache-helpers";
+
+const userNameSelection: PreparedSelection = {
+  variables: ["id"],
+  paths: [
+    {
+      root: "Query",
+      steps: [{ field: "user", args: { id: { __gqlensVariable: "id" } } }, { field: "name" }],
+    },
+  ],
+};
 
 function wrapper(overrides: Partial<Parameters<typeof GQLensProvider>[0]["config"]> = {}) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
@@ -44,10 +63,39 @@ describe("React adapter", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    test("shares cache and session within a provider for matching config", () => {
+    test("accepts grouped provider defaults", () => {
+      const { result } = renderHook(
+        () =>
+          [
+            useQuery({ scope: "shared" }),
+            useQuery({ scope: "shared", policy: "cache-first", ttl: 5000 }),
+            useQuery({ scope: "shared", policy: "network-only", ttl: 5000 }),
+          ] as const,
+        {
+          wrapper: wrapper({ query: { policy: "cache-first", ttl: 5000 } }),
+        },
+      );
+
+      expect(result.current[0].session).toBe(result.current[1].session);
+      expect(result.current[0].session).not.toBe(result.current[2].session);
+    });
+
+    test("keeps local query sessions isolated by default", () => {
       const { result } = renderHook(() => [useQuery(), useQuery()] as const, {
         wrapper: wrapper(),
       });
+
+      expect(result.current[0].cache).toBe(result.current[1].cache);
+      expect(result.current[0].session).not.toBe(result.current[1].session);
+    });
+
+    test("shares query sessions only through explicit scope", () => {
+      const { result } = renderHook(
+        () => [useQuery({ scope: "shared" }), useQuery({ scope: "shared" })] as const,
+        {
+          wrapper: wrapper(),
+        },
+      );
 
       expect(result.current[0].cache).toBe(result.current[1].cache);
       expect(result.current[0].session).toBe(result.current[1].session);
@@ -61,6 +109,49 @@ describe("React adapter", () => {
 
       expect(result.current[0].cache).toBe(result.current[1].cache);
       expect(result.current[0].session).not.toBe(result.current[1].session);
+    });
+
+    test("runs prepared selections with bound variables", async () => {
+      const fetcher = vi
+        .fn<Fetcher>()
+        .mockResolvedValueOnce({
+          user: { __typename: "User", id: "1", name: "Alice" },
+        })
+        .mockResolvedValueOnce({
+          user: { __typename: "User", id: "2", name: "Bob" },
+        });
+      const metadata = {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      } as const;
+      const { rerender } = renderHook(
+        ({ id }: { readonly id: string }) => {
+          const state = usePreparedQuery(
+            userNameSelection,
+            { id },
+            { policy: "network-only", metadata },
+          );
+          return state.loading;
+        },
+        { initialProps: { id: "1" }, wrapper: wrapper({ fetcher }) },
+      );
+
+      await waitFor(() => {
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      });
+      rerender({ id: "2" });
+      await waitFor(() => {
+        expect(fetcher).toHaveBeenCalledTimes(2);
+      });
+
+      expect(fetcher).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ variables: { v0: "1" } }),
+      );
+      expect(fetcher).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ variables: { v0: "2" } }),
+      );
     });
   });
 
@@ -90,7 +181,7 @@ describe("React adapter", () => {
           state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
           return state;
         },
-        { wrapper: wrapper({ endpoint: undefined, liveSubscriber }) },
+        { wrapper: wrapper({ endpoint: undefined, live: { subscriber: liveSubscriber } }) },
       );
 
       await waitFor(() => {
@@ -102,7 +193,9 @@ describe("React adapter", () => {
       });
 
       await waitFor(() => {
-        expect(result.current.cache.field({ type: "User", id: "1" }, "name").sig()).toBe("Alice");
+        expect(cacheField(result.current.cache, { type: "User", id: "1" }, "name").sig()).toBe(
+          "Alice",
+        );
       });
     });
   });
@@ -188,6 +281,67 @@ describe("React adapter", () => {
         }),
       );
     });
+
+    test("does not reschedule an unchanged selection after render-only updates", async () => {
+      const fetcher = vi.fn<Fetcher>(async () => ({}));
+      renderHook(
+        () => {
+          const state = useQuery({ policy: "cache-and-network" });
+          state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
+          return state.loading;
+        },
+        { wrapper: wrapper({ fetcher }) },
+      );
+
+      await waitFor(() => {
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    test("schedules again when data reveals a dependent selection", async () => {
+      const cache = createNormalizedCache();
+      const metadata = {
+        roots: {
+          users: { returnsEntity: true, returnsList: true, graphQLType: "User" },
+          user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } },
+        },
+        types: {
+          User: {
+            name: { returnsEntity: false },
+          },
+        },
+      } as const;
+      const fetcher = vi
+        .fn<Fetcher>()
+        .mockResolvedValueOnce({
+          users: [{ __typename: "User", id: "1" }],
+        })
+        .mockResolvedValueOnce({
+          users: [{ __typename: "User", id: "1" }],
+          user: { __typename: "User", id: "1", name: "Alice" },
+        });
+
+      const { result } = renderHook(
+        () => {
+          const state = useQuery({ policy: "cache-first", metadata });
+          state.demand("Query", [{ field: "users" }, { field: "ids" }]);
+          demandFirstUserName(state);
+          return state.loading;
+        },
+        { wrapper: wrapper({ cache, fetcher }) },
+      );
+
+      await waitFor(() => {
+        expect(fetcher).toHaveBeenCalledTimes(2);
+      });
+      expect(result.current).toBe(false);
+      expect(cacheField<string>(cache, cache.entity("User", "1"), "name").sig()).toBe("Alice");
+    });
   });
 
   describe("useMutation", () => {
@@ -246,10 +400,16 @@ describe("React adapter", () => {
       await result.current.rename({
         id: "1",
         name: "Alice",
-        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+        invalidates: [
+          {
+            kind: "entity",
+            ref: { type: "User", id: "1" },
+            paths: [[{ field: "name" }]],
+          },
+        ],
       });
 
-      expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
+      expect(cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig()).toBe(
         "Alice",
       );
     });
@@ -293,20 +453,26 @@ describe("React adapter", () => {
       );
 
       await waitFor(() => {
-        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
-          "Alice",
-        );
+        expect(
+          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+        ).toBe("Alice");
       });
 
       await result.current.rename({
         id: "1",
-        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+        invalidates: [
+          {
+            kind: "entity",
+            ref: { type: "User", id: "1" },
+            paths: [[{ field: "name" }]],
+          },
+        ],
       });
 
       await waitFor(() => {
-        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
-          "Fresh Alice",
-        );
+        expect(
+          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+        ).toBe("Fresh Alice");
       });
       expect(fetcher).toHaveBeenCalledTimes(3);
       expect(fetcher.mock.calls.map(([op]) => op.operationName)).toStrictEqual([
@@ -347,9 +513,9 @@ describe("React adapter", () => {
       );
 
       await waitFor(() => {
-        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
-          "Alice",
-        );
+        expect(
+          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+        ).toBe("Alice");
       });
 
       await result.current.rename({
@@ -366,11 +532,53 @@ describe("React adapter", () => {
       });
 
       await waitFor(() => {
-        expect(result.current.state.cache.field({ type: "User", id: "1" }, "name").sig()).toBe(
-          "Fresh Alice",
-        );
+        expect(
+          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+        ).toBe("Fresh Alice");
       });
       expect(fetcher).toHaveBeenCalledTimes(3);
+    });
+
+    test("rolls back optimistic selector invalidations with descriptor metadata", async () => {
+      const cache = createNormalizedCache();
+      cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
+      const fetcher = vi.fn<Fetcher>(async () => {
+        throw new Error("server rejected");
+      });
+      const metadata = {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      } as const;
+      const { result } = renderHook(
+        () =>
+          useMutation({
+            operationName: "renameUser",
+            query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
+            metadata,
+            variables: (input: { id: string }) => ({ id: input.id }),
+          }),
+        { wrapper: wrapper({ cache, fetcher }) },
+      );
+
+      await expect(
+        result.current({
+          id: "1",
+          optimistic(c) {
+            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
+          },
+          invalidates: [
+            {
+              kind: "selection",
+              path: {
+                root: "Query",
+                steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+              },
+            },
+          ],
+        }),
+      ).rejects.toThrow("server rejected");
+
+      expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
     });
   });
 
@@ -415,8 +623,83 @@ describe("React adapter", () => {
       );
 
       await waitFor(() => {
-        expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+        expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Alice");
       });
+    });
+
+    test("releases unmounted local sessions from provider invalidation", async () => {
+      const metadata = {
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      } as const;
+      const fetcher = vi
+        .fn<Fetcher>()
+        .mockResolvedValueOnce({
+          user: { __typename: "User", id: "1", name: "Alice" },
+        })
+        .mockResolvedValueOnce({ renameUser: true })
+        .mockResolvedValue({
+          user: { __typename: "User", id: "1", name: "Fresh Alice" },
+        });
+      let rename = missingMutationChild;
+
+      function QueryChild() {
+        const state = useQuery({ policy: "cache-and-network", metadata });
+        state.demand("Query", [{ field: "user", args: { id: "1" } }, { field: "name" }]);
+        return null;
+      }
+
+      function MutationChild() {
+        const mutate = useMutation({
+          operationName: "renameUser",
+          query: "mutation renameUser($id: ID!) { renameUser(id: $id) }",
+          variables: (input: { id: string }) => ({ id: input.id }),
+        });
+        rename = () =>
+          mutate({
+            id: "1",
+            invalidates: [
+              {
+                kind: "entity",
+                ref: { type: "User", id: "1" },
+                paths: [[{ field: "name" }]],
+              },
+            ],
+          });
+        return null;
+      }
+
+      const view = render(
+        createElement(GQLensProvider, {
+          config: { fetcher },
+          children: [
+            createElement(QueryChild, { key: "query" }),
+            createElement(MutationChild, { key: "mutation" }),
+          ],
+        }),
+      );
+      await waitFor(() => {
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      });
+
+      view.rerender(
+        createElement(GQLensProvider, {
+          config: { fetcher },
+          children: createElement(MutationChild, { key: "mutation" }),
+        }),
+      );
+      await act(async () => {
+        await rename();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher.mock.calls.map(([op]) => op.operationName)).toStrictEqual([
+        "GQLens",
+        "renameUser",
+      ]);
     });
 
     test("cleans up signal subscriptions on unmount", () => {
@@ -434,3 +717,16 @@ describe("React adapter", () => {
     });
   });
 });
+
+function demandFirstUserName(state: SessionState): void {
+  const ids = state.read(cacheSlot<readonly string[]>(state.cache, "Query.users.ids").sig);
+  const id = ids?.[0];
+  if (id === undefined) {
+    return;
+  }
+  state.demand("Query", [{ field: "user", args: { id } }, { field: "name" }]);
+}
+
+async function missingMutationChild(): Promise<unknown> {
+  throw new Error("mutation child was not mounted");
+}

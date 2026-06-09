@@ -1,7 +1,8 @@
-import { applyInvalidations, isInvalidationSpec } from "./invalidation";
-import type { Fetcher } from "./transport";
+import { applyInvalidations } from "./invalidation";
+import { readGraphQLData, type Fetcher } from "./transport";
+import { isEntityObject } from "./guards";
 import type {
-  InvalidationInput,
+  CacheInvalidation,
   MutationOptions,
   MutationSource,
   NormalizedCache,
@@ -13,37 +14,46 @@ export interface MutationRunnerConfig<TInput extends Record<string, unknown>, TD
   readonly mutation: MutationSource<TInput, TData>;
   readonly fetcher: Fetcher;
   readonly metadata?: PlannerMetadata | undefined;
-  invalidate?(invalidations: readonly InvalidationInput[]): void;
+  invalidate?(invalidations: readonly CacheInvalidation[], metadata?: PlannerMetadata): void;
 }
 
 export function createMutationRunner<TInput extends Record<string, unknown>, TData>(
   config: MutationRunnerConfig<TInput, TData>,
 ): (input: TInput & MutationOptions) => Promise<TData> {
   const mutate = mutationFunction(config.mutation, config.fetcher);
+  const metadata = config.metadata ?? mutationMetadata(config.mutation);
   const invalidate =
     config.invalidate ??
-    ((invalidations: readonly InvalidationInput[]) => {
-      applyInvalidations(config.cache, invalidations, config.metadata);
+    ((invalidations: readonly CacheInvalidation[]) => {
+      applyInvalidations(config.cache, invalidations, metadata);
     });
 
   return async (input): Promise<TData> => {
-    const snapshots = input.optimistic
-      ? snapshotFields(config.cache, input.invalidates ?? [])
-      : new Map<string, Record<string, unknown>>();
-    input.optimistic?.(config.cache);
+    const invalidates = input.invalidates ?? [];
+    const transaction = input.optimistic
+      ? config.cache.transaction((cache) => {
+          input.optimistic?.(cache);
+        })
+      : undefined;
 
     try {
       const data = await mutate(input);
-      if (input.invalidates && input.invalidates.length > 0) {
-        invalidate(input.invalidates);
+      if (invalidates.length > 0) {
+        invalidate(invalidates, metadata);
       }
-      normalizeMutationResult(config.cache, data);
+      normalizeMutationResult(config.cache, data, metadata);
       return data;
     } catch (error) {
-      rollback(config.cache, input.invalidates ?? [], snapshots, config.metadata);
+      transaction?.rollback();
       throw error;
     }
   };
+}
+
+function mutationMetadata<TInput extends Record<string, unknown>, TData>(
+  mutation: MutationSource<TInput, TData>,
+): PlannerMetadata | undefined {
+  return typeof mutation === "function" ? undefined : mutation.metadata;
 }
 
 function mutationFunction<TInput extends Record<string, unknown>, TData>(
@@ -66,70 +76,34 @@ function mutationFunction<TInput extends Record<string, unknown>, TData>(
   };
 }
 
-function readGraphQLData(data: unknown): Record<string, unknown> {
-  if (isRecord(data) && isRecord(data["data"])) {
-    return data["data"];
-  }
-  return (data ?? {}) as Record<string, unknown>;
-}
-
-function normalizeMutationResult(cache: NormalizedCache, data: unknown): void {
-  if (isEntityObject(data)) {
-    cache.normalize({ mutation: data });
-    return;
-  }
-  cache.normalize((data ?? {}) as Record<string, unknown>);
-}
-
-function isEntityObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && "__typename" in value && "id" in value;
-}
-
-function snapshotFields(
+function normalizeMutationResult(
   cache: NormalizedCache,
-  specs: readonly InvalidationInput[],
-): Map<string, Record<string, unknown>> {
-  const snapshots = new Map<string, Record<string, unknown>>();
-  for (const spec of specs) {
-    if (!isInvalidationSpec(spec)) {
-      continue;
-    }
-    if (!spec.keys || spec.keys.length === 0) {
-      continue;
-    }
-    const ref = cache.entity(spec.type, spec.id);
-    const fields: Record<string, unknown> = {};
-    for (const key of spec.keys) {
-      fields[key] = cache.field(ref, key).sig();
-    }
-    snapshots.set(`${spec.type}:${spec.id}`, fields);
-  }
-  return snapshots;
-}
-
-function rollback(
-  cache: NormalizedCache,
-  specs: readonly InvalidationInput[],
-  snapshots: ReadonlyMap<string, Record<string, unknown>>,
+  data: unknown,
   metadata: PlannerMetadata | undefined,
 ): void {
-  for (const spec of specs) {
-    if (!isInvalidationSpec(spec)) {
-      applyInvalidations(cache, [spec], metadata);
-      continue;
-    }
-    const ref = cache.entity(spec.type, spec.id);
-    const snapshot = snapshots.get(`${spec.type}:${spec.id}`);
-    if (snapshot && spec.keys) {
-      for (const key of spec.keys) {
-        cache.field(ref, key).sig(snapshot[key]);
-      }
-    } else {
-      cache.invalidate(ref, spec.keys);
-    }
+  if (isEntityObject(data)) {
+    cache.normalize({ mutation: data }, 0, mutationResultMetadata(data, metadata));
+    return;
   }
+  cache.normalize((data ?? {}) as Record<string, unknown>, 0, metadata);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function mutationResultMetadata(
+  data: Record<string, unknown>,
+  metadata: PlannerMetadata | undefined,
+): PlannerMetadata | undefined {
+  if (!metadata || typeof data["__typename"] !== "string") {
+    return metadata;
+  }
+  return {
+    ...metadata,
+    roots: {
+      ...metadata.roots,
+      mutation: {
+        returnsEntity: true,
+        graphQLType: data["__typename"],
+        targetObjectKind: "entity",
+      },
+    },
+  };
 }

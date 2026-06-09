@@ -1,0 +1,32 @@
+type User {
+  id: ID!
+  name: String!
+  status: UserStatus!
+}
+
+type UserStatus {
+  online: Boolean!
+  source: StatusSource!
+}
+
+type StatusSource {
+  kind: String!
+  version: String
+}
+
+type PluginStatus {
+  summary: PluginSummary!
+}
+
+type PluginSummary {
+  total: Int!
+}
+
+type Query {
+  user(id: ID!): User
+  pluginStatus: PluginStatus!
+}
+
+type Mutation {
+  renameUser(id: ID!, name: String!): User!
+}

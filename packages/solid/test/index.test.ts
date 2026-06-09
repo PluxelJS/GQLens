@@ -1,12 +1,24 @@
 import { describe, expect, test, vi, afterEach } from "vitest";
 import { createRoot } from "solid-js";
-import { createQuery, createLiveQuery, createMutation } from "@gqlens/solid";
+import { createQuery, createLiveQuery, createMutation, createPreparedQuery } from "@gqlens/solid";
 import {
   createNormalizedCache,
   createSignal,
   type Fetcher,
   type LiveSubscriber,
+  type PreparedSelection,
 } from "@gqlens/core";
+import { cacheField, cacheSlot } from "../../core/test/cache-helpers";
+
+const userNameSelection: PreparedSelection = {
+  variables: ["id"],
+  paths: [
+    {
+      root: "Query",
+      steps: [{ field: "user", args: { id: { __gqlensVariable: "id" } } }, { field: "name" }],
+    },
+  ],
+};
 
 describe("Solid adapter", () => {
   afterEach(() => {
@@ -52,7 +64,7 @@ describe("Solid adapter", () => {
       const state = createQuery({ fetcher, policy: "network-only" });
 
       state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await nextMacrotask();
 
       expect(fetcher).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -88,6 +100,23 @@ describe("Solid adapter", () => {
     });
   });
 
+  describe("createPreparedQuery", () => {
+    test("demands bound prepared selection paths", async () => {
+      const fetcher = vi.fn<Fetcher>(async () => ({
+        user: { __typename: "User", id: "1", name: "Alice" },
+      }));
+
+      createPreparedQuery(userNameSelection, { id: "1" }, { fetcher, policy: "network-only" });
+      await nextMacrotask();
+
+      expect(fetcher).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variables: { v0: "1" },
+        }),
+      );
+    });
+  });
+
   describe("createLiveQuery", () => {
     test("returns session state", () => {
       const state = createLiveQuery({ endpoint: "/graphql" });
@@ -105,7 +134,7 @@ describe("Solid adapter", () => {
       });
       const state = createLiveQuery({
         cache,
-        liveSubscriber,
+        live: { subscriber: liveSubscriber },
         metadata: {
           roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
           types: { User: { name: { returnsEntity: false } } },
@@ -118,7 +147,7 @@ describe("Solid adapter", () => {
       expect(liveSubscriber).toHaveBeenCalledTimes(1);
 
       listeners[0]?.({ viewer: { __typename: "User", id: "1", name: "Alice" } });
-      expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+      expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Alice");
     });
   });
 
@@ -127,7 +156,7 @@ describe("Solid adapter", () => {
       const cache = createNormalizedCache();
       const mutate = createMutation(
         async (input: { name: string }) => ({ success: true, ...input }),
-        cache,
+        { cache },
       );
 
       expect(typeof mutate).toBe("function");
@@ -139,13 +168,13 @@ describe("Solid adapter", () => {
         async (input: { name: string }) => ({
           renameUser: { __typename: "User", id: "1", name: input.name },
         }),
-        cache,
+        { cache },
       );
 
       await mutate({ name: "Bob" });
 
       const ref = cache.entity("User", "1");
-      expect(cache.field(ref, "name").sig()).toBe("Bob");
+      expect(cacheField(cache, ref, "name").sig()).toBe("Bob");
     });
 
     test("executes mutation operation descriptors", async () => {
@@ -163,8 +192,7 @@ describe("Solid adapter", () => {
             name: input.name,
           }),
         },
-        cache,
-        fetcher,
+        { cache, fetcher },
       );
 
       await mutate({ id: "1", name: "Alice" });
@@ -175,7 +203,27 @@ describe("Solid adapter", () => {
           variables: { id: "1", name: "Alice" },
         }),
       );
-      expect(cache.field(cache.entity("User", "1"), "name").sig()).toBe("Alice");
+      expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Alice");
+    });
+
+    test("accepts mutation options object", async () => {
+      const cache = createNormalizedCache();
+      const fetcher = vi.fn<Fetcher>(async () => ({
+        renameUser: { __typename: "User", id: "1", name: "Alice" },
+      }));
+      const mutate = createMutation(
+        {
+          operationName: "renameUser",
+          query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
+          variables: (input: { id: string }) => ({ id: input.id }),
+        },
+        { cache, fetcher },
+      );
+
+      await mutate({ id: "1" });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Alice");
     });
 
     test("runs optimistic update callback", async () => {
@@ -184,7 +232,7 @@ describe("Solid adapter", () => {
         async (input: { name: string }) => ({
           renameUser: { __typename: "User", id: "1", name: input.name },
         }),
-        cache,
+        { cache },
       );
 
       let optimisticRan = false;
@@ -192,9 +240,15 @@ describe("Solid adapter", () => {
         name: "Alice",
         optimistic(c) {
           optimisticRan = true;
-          c.field(c.entity("User", "1"), "name").sig("Alice");
+          cacheField(c, c.entity("User", "1"), "name").sig("Alice");
         },
-        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+        invalidates: [
+          {
+            kind: "entity",
+            ref: { type: "User", id: "1" },
+            paths: [[{ field: "name" }]],
+          },
+        ],
       });
 
       expect(optimisticRan).toBe(true);
@@ -206,26 +260,33 @@ describe("Solid adapter", () => {
         async (input: { name: string }) => ({
           renameUser: { __typename: "User", id: "1", name: input.name },
         }),
-        cache,
+        { cache },
       );
 
       await mutate({
         name: "Alice",
-        invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+        invalidates: [
+          {
+            kind: "entity",
+            ref: { type: "User", id: "1" },
+            paths: [[{ field: "name" }]],
+          },
+        ],
       });
 
-      const field = cache.field(cache.entity("User", "1"), "name");
+      const field = cacheField(cache, cache.entity("User", "1"), "name");
       expect(field.sig()).toBe("Alice");
       expect(field.expires).toBe(0);
     });
 
     test("accepts selector invalidation targets", async () => {
       const cache = createNormalizedCache();
-      const refs = cache.slot<readonly { type: string; id: string }[]>(
+      const refs = cacheSlot<readonly { type: string; id: string }[]>(
+        cache,
         'Query.search({"text":"a"}).refs',
       );
       refs.sig([{ type: "User", id: "1" }]);
-      const mutate = createMutation(async () => ({ ok: true }), cache);
+      const mutate = createMutation(async () => ({ ok: true }), { cache });
 
       await mutate({
         invalidates: [
@@ -242,6 +303,46 @@ describe("Solid adapter", () => {
       expect(refs.expires).toBeLessThan(Date.now());
     });
 
+    test("rolls back optimistic selector invalidations with descriptor metadata", async () => {
+      const cache = createNormalizedCache();
+      cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
+      const fetcher = vi.fn<Fetcher>(async () => {
+        throw new Error("server rejected");
+      });
+      const mutate = createMutation(
+        {
+          operationName: "renameUser",
+          query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
+          metadata: {
+            roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+            types: { User: { name: { returnsEntity: false } } },
+          },
+          variables: (input: { id: string }) => ({ id: input.id }),
+        },
+        { cache, fetcher },
+      );
+
+      await expect(
+        mutate({
+          id: "1",
+          optimistic(c) {
+            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
+          },
+          invalidates: [
+            {
+              kind: "selection",
+              path: {
+                root: "Query",
+                steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+              },
+            },
+          ],
+        }),
+      ).rejects.toThrow("server rejected");
+
+      expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
+    });
+
     test("rolls back optimistic writes on error", async () => {
       const cache = createNormalizedCache();
       // Pre-populate cache
@@ -249,23 +350,32 @@ describe("Solid adapter", () => {
         renameUser: { __typename: "User", id: "1", name: "original" },
       });
 
-      const mutate = createMutation(async () => {
-        throw new Error("server rejected");
-      }, cache);
+      const mutate = createMutation(
+        async () => {
+          throw new Error("server rejected");
+        },
+        { cache },
+      );
 
       await expect(
         mutate({
           name: "Alice",
           optimistic(c) {
-            c.field(c.entity("User", "1"), "name").sig("bad-write");
+            cacheField(c, c.entity("User", "1"), "name").sig("bad-write");
           },
-          invalidates: [{ type: "User", id: "1", keys: ["name"] }],
+          invalidates: [
+            {
+              kind: "entity",
+              ref: { type: "User", id: "1" },
+              paths: [[{ field: "name" }]],
+            },
+          ],
         }),
       ).rejects.toThrow("server rejected");
 
       const ref = cache.entity("User", "1");
-      expect(cache.field(ref, "name").sig()).toBe("original");
-      expect(cache.field(ref, "name").expires).toBe(0);
+      expect(cacheField(cache, ref, "name").sig()).toBe("original");
+      expect(cacheField(cache, ref, "name").expires).toBe(0);
     });
   });
 });

@@ -13,6 +13,16 @@ interface FieldNode {
   readonly children: Map<string, FieldNode>;
 }
 
+interface RenderContext {
+  readonly variables: VariableRegistry;
+  readonly metadata: PlannerMetadata | undefined;
+}
+
+interface RenderScope {
+  readonly parentType?: string | undefined;
+  readonly indent: number;
+}
+
 export function plan(
   paths: readonly SelectionPath[],
   operationType = "query",
@@ -29,7 +39,7 @@ export function plan(
 
   const variables = createVariableRegistry();
   const tree = buildTree(paths);
-  const fields = renderNodes([...tree.values()], variables, metadata, undefined, 1);
+  const fields = renderNodes([...tree.values()], { variables, metadata }, { indent: 1 });
   const selections = collectPlannedPaths(paths, tree);
   const declarations = variables
     .entries()
@@ -69,38 +79,28 @@ function buildTree(paths: readonly SelectionPath[]): Map<string, FieldNode> {
 
 function renderNodes(
   nodes: readonly FieldNode[],
-  variables: VariableRegistry,
-  metadata: PlannerMetadata | undefined,
-  parentType: string | undefined,
-  indent: number,
+  context: RenderContext,
+  scope: RenderScope,
 ): string[] {
   const aliases = aliasMap(nodes);
   return nodes
     .slice()
     .toSorted((a, b) => stepKey(a.step).localeCompare(stepKey(b.step)))
-    .map((node) =>
-      renderNode(node, aliases.get(node) ?? "", variables, metadata, parentType, indent),
-    );
+    .map((node) => renderNode(node, aliases.get(node) ?? "", context, scope));
 }
 
 function renderNode(
   node: FieldNode,
   alias: string,
-  variables: VariableRegistry,
-  metadata: PlannerMetadata | undefined,
-  parentType: string | undefined,
-  indent: number,
+  context: RenderContext,
+  scope: RenderScope,
 ): string {
+  const { variables, metadata } = context;
+  const { parentType, indent } = scope;
   const pad = "  ".repeat(indent);
   if (node.step.typeCondition) {
     const children = [...node.children.values()];
-    const childLines = renderNodes(
-      children,
-      variables,
-      metadata,
-      node.step.typeCondition,
-      indent + 1,
-    );
+    const childLines = renderNodes(children, context, childScope(node.step.typeCondition, indent));
     childLines.push(`${"  ".repeat(indent + 1)}id`);
     childLines.push(`${"  ".repeat(indent + 1)}__typename`);
     const uniqueChildren = [...new Set(childLines)].toSorted();
@@ -120,7 +120,7 @@ function renderNode(
 
   const identityField = [...node.children.values()].find((child) => isListIdentityStep(child.step));
   const children = [...node.children.values()].filter((child) => !isListIdentityStep(child.step));
-  const childLines = renderNodes(children, variables, metadata, childType, indent + 1);
+  const childLines = renderNodes(children, context, childScope(childType, indent));
   if (fieldMeta?.isAbstract && identityField?.step.field === "refs") {
     childLines.push(`${"  ".repeat(indent + 1)}__typename`);
     for (const type of fieldMeta.possibleTypes ?? []) {
@@ -135,6 +135,10 @@ function renderNode(
 
   const uniqueChildren = [...new Set(childLines)].toSorted();
   return `${pad}${prefix}${node.step.field}${args} {\n${uniqueChildren.join("\n")}\n${pad}}`;
+}
+
+function childScope(parentType: string | undefined, parentIndent: number): RenderScope {
+  return { parentType, indent: parentIndent + 1 };
 }
 
 function aliasMap(nodes: readonly FieldNode[]): Map<FieldNode, string> {

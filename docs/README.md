@@ -39,9 +39,11 @@
 
 这些文档不表示新的阅读阶段；它们用于校准设计边界、补充对照和约束实现。
 
-| 文档                                          | 内容                                                       |
-| --------------------------------------------- | ---------------------------------------------------------- |
-| [API 语法规范](./规范-API语法.md)             | canonical grammar、合法形态、禁止 API、LLM 决策规则        |
-| [GraphQL 语义映射](./参考-GraphQL语义映射.md) | alias、directive、fragment、abstract type、defer/live 映射 |
-| [性能模型](./参考-性能模型.md)                | accessor 成本、field signal 粒度、懒创建、GQty 成本对照    |
-| [GQty 对照](./参考-GQty对照.md)               | 设计谱系、共同前提、分歧轴、GQLens 独立判断                |
+| 文档                                                 | 内容                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| [API 语法规范](./规范-API语法.md)                    | canonical grammar、合法形态、禁止 API、LLM 决策规则               |
+| [服务端 Schema 设计指南](./服务端-Schema设计指南.md) | 服务端 `id` contract、composite identity、Value Object 与列表边界 |
+| [GraphQL 语义映射](./参考-GraphQL语义映射.md)        | alias、directive、fragment、abstract type、defer/live 映射        |
+| [性能模型](./参考-性能模型.md)                       | accessor 成本、field signal 粒度、懒创建、GQty 成本对照           |
+| [GQty 对照](./参考-GQty对照.md)                      | 设计谱系、共同前提、分歧轴、GQLens 独立判断                       |
+| [实现文档](./实现/README.md)                         | 当前源码结构、实现状态、后续精进设计记录                          |

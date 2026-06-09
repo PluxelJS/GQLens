@@ -1,14 +1,18 @@
 export type {
   AlienSignal,
   AlienSignalReader,
+  CacheAddress,
+  CacheFacet,
+  CacheInvalidation,
+  CacheOwner,
+  CachePath,
   CachePolicy,
+  CacheTransaction,
+  CacheWriteOptions,
   EntityRef,
   FieldSignal,
   GraphQLOperation,
   GraphQLResult,
-  InvalidationInput,
-  InvalidationTarget,
-  InvalidationSpec,
   MutationOperation,
   MutationOptions,
   MutationSource,
@@ -19,28 +23,23 @@ export type {
   PlannerFieldMetadata,
   PlannerMetadata,
   QuerySessionConfig,
+  QueryDefaults,
   SelectionPath,
   SelectionStep,
-  SlotValue,
   VariablePlaceholder,
 } from "./types";
 
 export { createSignal, watchSignal } from "./signal";
-export {
-  canonicalJSON,
-  isVariablePlaceholder,
-  relationSlotKey,
-  selectionKey,
-  slotKey,
-  stepKey,
-} from "./keys";
+export { selectionKey } from "./keys";
 export { createNormalizedCache } from "./cache";
 export type { ReaderHandle, SelectionCollector } from "./collector";
 export { createSelectionCollector } from "./collector";
-export { applyInvalidations, isInvalidationSpec } from "./invalidation";
+export { applyInvalidations } from "./invalidation";
 export { createMutationRunner } from "./mutation";
 export { plan } from "./planner";
 export type { QuerySession } from "./session";
+export type { LiveQuerySessionOptions, QuerySessionOptions } from "./session";
 export { createLiveQuerySession, createQuerySession } from "./session";
 export type { Fetcher, LiveSubscriber } from "./transport";
 export { createFetchTransport, createLiveTransport } from "./transport";
+export { bindSelection } from "../codegen/index";

@@ -1,6 +1,6 @@
 import type { MutationOperation, PreparedSelection } from "@gqlens/core";
 import { api, defineSelection, type QueryNode } from "./accessor";
-import type { InvalidationSpec } from "./invalidation";
+import type { Invalidation } from "./invalidation";
 import type * as Types from "./types";
 
 export function readReports(q: QueryNode): {
@@ -49,8 +49,8 @@ export const renameReport: MutationOperation<Types.MutationRenameReportArgs, Typ
 export const createAudit: MutationOperation<Types.MutationCreateAuditArgs, Types.AuditEvent> =
   api.audit.create;
 
-export const typedInvalidation: InvalidationSpec = {
-  type: "Report",
-  id: "report-1",
-  keys: ["title", "createdAt"],
+export const typedInvalidation: Invalidation = {
+  kind: "entity",
+  ref: { type: "Report", id: "report-1" },
+  paths: [[{ field: "title" }], [{ field: "createdAt" }]],
 };

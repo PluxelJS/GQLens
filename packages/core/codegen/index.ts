@@ -1,9 +1,9 @@
-import { relationSlotKey, slotKey, stepKey } from "../src/keys";
+import { isVariablePlaceholder, stepKey } from "../src/keys";
 import type {
   AlienSignalReader,
+  CacheInvalidation,
   EntityRef,
   FieldSignal,
-  InvalidationTarget,
   NormalizedCache,
   PreparedSelection,
   PlannerMetadata,
@@ -16,6 +16,7 @@ const accessorMeta = Symbol("gqlens.accessorMeta");
 
 export interface EntityMeta {
   readonly type: string;
+  readonly kind?: "entity" | "value" | "root" | undefined;
   readonly identityKeys: readonly string[];
   readonly fields: Readonly<Record<string, FieldMeta>>;
   readonly possibleTypes?: readonly string[] | undefined;
@@ -25,8 +26,9 @@ export interface EntityMeta {
 
 export interface FieldMeta {
   readonly name: string;
-  readonly kind: "scalar" | "entity" | "list";
+  readonly kind: "scalar" | "entity" | "value" | "list";
   readonly typeName?: string | undefined;
+  readonly targetObjectKind?: "entity" | "value" | undefined;
   readonly hasArgs?: boolean | undefined;
   readonly isAbstract?: boolean | undefined;
   readonly possibleTypes?: readonly string[] | undefined;
@@ -50,6 +52,11 @@ interface AccessorNodeMeta {
   readonly steps: readonly SelectionStep[];
 }
 
+interface ResolvedOwner {
+  readonly ref: EntityRef;
+  readonly fieldSteps: readonly SelectionStep[];
+}
+
 export interface NormalizerEntry {
   readonly type: string;
   readonly fields: readonly NormalizerField[];
@@ -67,7 +74,7 @@ export function createAccessorNode<T extends object>(
   schema: SchemaMeta,
   meta: EntityMeta,
   steps: readonly SelectionStep[] = [],
-  refResolver?: () => EntityRef | undefined,
+  ownerResolver?: () => ResolvedOwner | undefined,
 ): T {
   const target = {};
   const childCache = new Map<string, unknown>();
@@ -83,9 +90,9 @@ export function createAccessorNode<T extends object>(
         value: (args?: Record<string, unknown>) => {
           const nextSteps = [...steps, { field: field.name, args }];
           if (field.kind === "scalar") {
-            return readField(ctx, schema, field, nextSteps, refResolver);
+            return readField(ctx, schema, field, nextSteps, ownerResolver);
           }
-          return readCachedField(ctx, schema, field, nextSteps, refResolver, childCache);
+          return readCachedField(ctx, schema, field, nextSteps, ownerResolver, childCache);
         },
       });
       continue;
@@ -96,9 +103,9 @@ export function createAccessorNode<T extends object>(
       get: () => {
         const nextSteps = [...steps, { field: field.name }];
         if (field.kind === "scalar") {
-          return readField(ctx, schema, field, nextSteps, refResolver);
+          return readField(ctx, schema, field, nextSteps, ownerResolver);
         }
-        return readCachedField(ctx, schema, field, nextSteps, refResolver, childCache);
+        return readCachedField(ctx, schema, field, nextSteps, ownerResolver, childCache);
       },
     });
   }
@@ -107,7 +114,7 @@ export function createAccessorNode<T extends object>(
   if (typeConditions.length > 0) {
     Object.defineProperty(target, "$on", {
       enumerable: false,
-      get: () => createInlineFragmentAccessors(ctx, schema, steps, refResolver, typeConditions),
+      get: () => createInlineFragmentAccessors(ctx, schema, steps, ownerResolver, typeConditions),
     });
   }
 
@@ -119,14 +126,14 @@ function readCachedField(
   schema: SchemaMeta,
   field: FieldMeta,
   steps: readonly SelectionStep[],
-  refResolver: (() => EntityRef | undefined) | undefined,
+  ownerResolver: (() => ResolvedOwner | undefined) | undefined,
   cache: Map<string, unknown>,
 ): unknown {
   const key = cacheFieldKey(steps);
   if (cache.has(key)) {
     return cache.get(key);
   }
-  const value = readField(ctx, schema, field, steps, refResolver);
+  const value = readField(ctx, schema, field, steps, ownerResolver);
   cache.set(key, value);
   return value;
 }
@@ -136,24 +143,38 @@ function readField(
   schema: SchemaMeta,
   field: FieldMeta,
   steps: readonly SelectionStep[],
-  refResolver: (() => EntityRef | undefined) | undefined,
+  ownerResolver: (() => ResolvedOwner | undefined) | undefined,
 ): unknown {
   if (field.kind === "scalar") {
     ctx.demand(steps);
-    const ref = refResolver?.();
-    const entry = ref
-      ? ctx.cache.field(ref, cacheFieldKey(steps))
-      : ctx.cache.slot(slotKey(ctx.root, steps));
+    const owner = ownerResolver?.();
+    const entry = owner
+      ? ctx.cache.entry({
+          owner: { kind: "entity", ref: owner.ref },
+          path: scalarPath(owner, steps),
+        })
+      : ctx.cache.entry({ owner: { kind: "root", root: ctx.root }, path: steps });
     return ctx.read(entry.sig);
   }
 
   if (field.kind === "list") {
-    return createListAccessor(ctx, steps, refResolver, field.isAbstract === true);
+    return createListAccessor(ctx, steps, ownerResolver, field.isAbstract === true);
   }
 
   const childMeta = field.typeName ? schema.entities[field.typeName] : undefined;
   if (!childMeta) {
     return createAccessorNode(ctx, schema, schema.query, steps);
+  }
+
+  if (field.kind === "value" || field.targetObjectKind === "value" || childMeta.kind === "value") {
+    return createAccessorNode(ctx, schema, childMeta, steps, () => {
+      const owner = ownerResolver?.();
+      if (!owner) {
+        return undefined;
+      }
+      const step = lastStep(steps);
+      return step ? { ref: owner.ref, fieldSteps: [...owner.fieldSteps, step] } : owner;
+    });
   }
 
   return createAccessorNode(ctx, schema, childMeta, steps, () => {
@@ -162,27 +183,42 @@ function readField(
       return undefined;
     }
 
-    if (!refResolver) {
-      const key = slotKey(ctx.root, steps);
-      const slot = ctx.cache.slot<EntityRef | null | undefined>(key);
+    if (!ownerResolver) {
+      const slot = ctx.cache.entry<EntityRef | null | undefined>({
+        owner: { kind: "root", root: ctx.root },
+        path: steps,
+      });
       const resolved = ctx.read<EntityRef | null | undefined>(slot.sig);
       if (resolved !== undefined) {
-        return resolved ?? undefined;
+        return resolved ? { ref: resolved, fieldSteps: [] } : undefined;
       }
 
       const id = step.args?.["id"];
       if (field.typeName && id !== undefined && !childMeta.isAbstract) {
-        return ctx.cache.entity(field.typeName, String(id));
+        return { ref: ctx.cache.entity(field.typeName, String(id)), fieldSteps: [] };
       }
     }
 
-    const ref = refResolver?.();
-    if (ref) {
-      const relation = ctx.cache.slot<EntityRef | null | undefined>(relationSlotKey(ref, step));
-      return ctx.read<EntityRef | null | undefined>(relation.sig) ?? undefined;
+    const owner = ownerResolver?.();
+    if (owner) {
+      const relationStep =
+        owner.fieldSteps.length > 0
+          ? { ...step, field: cacheFieldKey([...owner.fieldSteps, step]) }
+          : step;
+      const relation = ctx.cache.entry<EntityRef | null | undefined>({
+        owner: { kind: "entity", ref: owner.ref },
+        path: [relationStep],
+        facet: "link",
+      });
+      const ref = ctx.read<EntityRef | null | undefined>(relation.sig);
+      return ref ? { ref, fieldSteps: [] } : undefined;
     }
-    const slot = ctx.cache.slot<EntityRef | undefined>(slotKey(ctx.root, steps));
-    return ctx.read<EntityRef | undefined>(slot.sig);
+    const slot = ctx.cache.entry<EntityRef | undefined>({
+      owner: { kind: "root", root: ctx.root },
+      path: steps,
+    });
+    const ref = ctx.read<EntityRef | undefined>(slot.sig);
+    return ref ? { ref, fieldSteps: [] } : undefined;
   });
 }
 
@@ -190,7 +226,7 @@ function createInlineFragmentAccessors(
   ctx: AccessorContext,
   schema: SchemaMeta,
   steps: readonly SelectionStep[],
-  refResolver: (() => EntityRef | undefined) | undefined,
+  ownerResolver: (() => ResolvedOwner | undefined) | undefined,
   typeConditions: readonly string[],
 ): object {
   const target = {};
@@ -208,11 +244,11 @@ function createInlineFragmentAccessors(
           meta,
           [...steps, { field: "$on", typeCondition: typeName }],
           () => {
-            const ref = refResolver?.();
-            if (!ref || !matchesTypeCondition(meta, ref)) {
+            const owner = ownerResolver?.();
+            if (!owner || !matchesTypeCondition(meta, owner.ref)) {
               return undefined;
             }
-            return ref;
+            return { ref: owner.ref, fieldSteps: [] };
           },
         ),
     });
@@ -223,7 +259,7 @@ function createInlineFragmentAccessors(
 function createListAccessor(
   ctx: AccessorContext,
   steps: readonly SelectionStep[],
-  refResolver: (() => EntityRef | undefined) | undefined,
+  ownerResolver: (() => ResolvedOwner | undefined) | undefined,
   isAbstract: boolean,
 ): {
   readonly ids?: readonly string[] | undefined;
@@ -239,22 +275,30 @@ function createListAccessor(
     enumerable: false,
     get(): readonly string[] | readonly EntityRef[] | undefined {
       ctx.demand([...steps, { field: identityField }]);
-      const ref = refResolver?.();
-      if (ref) {
+      const owner = ownerResolver?.();
+      if (owner) {
         const step = lastStep(steps);
         if (!step) {
           return undefined;
         }
-        const slot = ctx.cache.slot<readonly string[] | readonly EntityRef[] | undefined>(
-          relationSlotKey(ref, step, identityField),
-        );
+        const relationStep =
+          owner.fieldSteps.length > 0
+            ? { ...step, field: cacheFieldKey([...owner.fieldSteps, step]) }
+            : step;
+        const slot = ctx.cache.entry<readonly string[] | readonly EntityRef[] | undefined>({
+          owner: { kind: "entity", ref: owner.ref },
+          path: [relationStep],
+          facet: identityField,
+        });
         return ctx.read(
           slot.sig as AlienSignalReader<readonly string[] | readonly EntityRef[] | undefined>,
         );
       }
-      const entry = ctx.cache.slot<readonly string[] | readonly EntityRef[] | undefined>(
-        slotKey(ctx.root, steps, identityField),
-      );
+      const entry = ctx.cache.entry<readonly string[] | readonly EntityRef[] | undefined>({
+        owner: { kind: "root", root: ctx.root },
+        path: steps,
+        facet: identityField,
+      });
       return ctx.read(
         entry.sig as AlienSignalReader<readonly string[] | readonly EntityRef[] | undefined>,
       );
@@ -267,8 +311,18 @@ function createListAccessor(
 }
 
 function cacheFieldKey(steps: readonly SelectionStep[]): string {
+  return steps
+    .filter((step) => !step.typeCondition)
+    .map(stepKey)
+    .join(".");
+}
+
+function scalarPath(
+  owner: ResolvedOwner,
+  steps: readonly SelectionStep[],
+): readonly SelectionStep[] {
   const step = lastStep(steps);
-  return step ? stepKey(step) : "";
+  return step ? [...owner.fieldSteps, step] : owner.fieldSteps;
 }
 
 function lastStep(steps: readonly SelectionStep[]): SelectionStep | undefined {
@@ -300,20 +354,32 @@ export function defineSelection<TQuery extends object>(
   return { paths, variables: [...variables] };
 }
 
+export function bindSelection(
+  selection: PreparedSelection,
+  variables: Readonly<Record<string, unknown>>,
+): SelectionPath[] {
+  return selection.paths.map((path) => ({
+    root: path.root,
+    steps: path.steps.map((step) =>
+      step.args ? { ...step, args: bindArgs(step.args, variables) } : step,
+    ),
+  }));
+}
+
 export function defineInvalidation<TQuery extends object>(
   schema: SchemaMeta,
   queryMeta: EntityMeta,
   callback: (q: TQuery) => unknown,
-): InvalidationTarget {
+): CacheInvalidation {
   const paths: SelectionPath[] = [];
   const ctx = selectorContext(schema.query.type, paths);
   const query = createAccessorNode<TQuery>(ctx, schema, queryMeta);
   const result = callback(query);
   if (paths[0]) {
-    return { kind: "selection", path: paths[0] };
+    return { kind: "selection", path: paths[0], metadata: schema.planner };
   }
   const steps = accessorSteps(result);
-  return { kind: "root", root: schema.query.type, steps };
+  return { kind: "root", root: schema.query.type, paths: [steps] };
 }
 
 function selectorContext(root: string, paths: SelectionPath[]): AccessorContext {
@@ -332,16 +398,22 @@ function selectorContext(root: string, paths: SelectionPath[]): AccessorContext 
 
 function selectorCache(): NormalizedCache {
   return {
-    field: <T = unknown>() => selectorEntry<T>(),
-    slot: <T = unknown>() => selectorEntry<T>(),
+    entry: <T = unknown>() => selectorEntry<T>(),
+    peek: () => undefined,
+    read: () => undefined,
+    write: selectorNoop,
+    isFresh: () => false,
+    transaction(run) {
+      return {
+        result: run(this),
+        rollback: selectorNoop,
+      };
+    },
     entity(type: string, id: string): EntityRef {
       return { type, id };
     },
     normalize: selectorNoop,
     invalidate: selectorNoop,
-    invalidateSlot: selectorNoop,
-    isCached: () => false,
-    isSlotCached: () => false,
     clear: selectorNoop,
   };
 }
@@ -362,4 +434,38 @@ function accessorSteps(value: unknown): readonly SelectionStep[] {
     return (value as { readonly [accessorMeta]: AccessorNodeMeta })[accessorMeta].steps;
   }
   return [];
+}
+
+function bindValue(value: unknown, variables: Readonly<Record<string, unknown>>): unknown {
+  if (isVariablePlaceholder(value)) {
+    const name = value["__gqlensVariable"];
+    if (!Object.hasOwn(variables, name)) {
+      throw new Error(`Missing GQLens prepared selection variable: ${name}`);
+    }
+    return variables[name];
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => bindValue(item, variables));
+  }
+  if (isPlainRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, bindValue(item, variables)]),
+    );
+  }
+  return value;
+}
+
+function bindArgs(
+  args: Record<string, unknown>,
+  variables: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return bindValue(args, variables) as Record<string, unknown>;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }

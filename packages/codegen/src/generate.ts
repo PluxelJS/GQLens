@@ -7,6 +7,7 @@ import { resolveAdapter, type AccessorAdapter, type BuiltInFramework } from "./a
 import { generateTypes } from "./types";
 import { generateNormalizer, generateInvalidation } from "./normalizer";
 import { generateAccessor } from "./accessor";
+import { validateEntitySchemaContract } from "./utils";
 
 export type SchemaInput = string | GraphQLSchema;
 
@@ -22,6 +23,7 @@ export async function generateFiles(options: GenerateFilesOptions): Promise<Gene
   const schemaSDL = schemaToSDL(options.schema);
   const schema = buildASTSchema(parse(schemaSDL));
   const adapter = resolveAdapter(options.framework, options.adapter);
+  validateEntitySchemaContract(schema);
 
   const files: Record<string, string> = {};
   files["types.ts"] = await generateTypes(schemaSDL);

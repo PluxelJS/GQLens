@@ -61,6 +61,16 @@ describe("@gqlens/codegen", () => {
     expect(accessor).toContain("user: (args: GQLensArgs<Types.QueryUserArgs>)");
   });
 
+  test("mutation descriptors carry metadata and selected result types", async () => {
+    const files = await generateFiles({ schema: testSchema });
+    const accessor = files["accessor.ts"]!;
+
+    expect(accessor).toContain("metadata: schemaMeta.planner");
+    expect(accessor).toContain(
+      'MutationOperation<Types.MutationRenameUserArgs, Pick<NonNullable<Types.Mutation["renameUser"]>, "id" | "__typename" | "name" | "avatar" | "online">>',
+    );
+  });
+
   test("uses the same args type names as GraphQL Code Generator", async () => {
     const files = await generateFiles({
       schema: /* graphql */ `
@@ -87,10 +97,11 @@ describe("@gqlens/codegen", () => {
     const files = await generateFiles({ schema: testSchema, framework: "solid" });
     const accessor = files["accessor.ts"]!;
     expect(accessor).toContain(
-      'import { createQuery as createGQLensSession, createLiveQuery as createLiveGQLensSession } from "@gqlens/solid"',
+      'import { createQuery as createGQLensSession, createLiveQuery as createLiveGQLensSession, type QueryConfig as GQLensQueryConfig } from "@gqlens/solid"',
     );
     expect(accessor).toContain("export function createQuery");
     expect(accessor).toContain("export function createLiveQuery");
+    expect(accessor).toContain("export function createPreparedQuery");
   });
 
   test("supports custom adapter descriptors", async () => {
@@ -113,5 +124,63 @@ describe("@gqlens/codegen", () => {
     );
     expect(accessor).toContain("const state = useGQLensVueSession");
     expect(accessor).toContain("const state = useLiveGQLensVueSession");
+  });
+
+  test("rejects object lists whose item type has no id", async () => {
+    await expect(
+      generateFiles({
+        schema: /* graphql */ `
+          type Summary {
+            total: Int!
+          }
+
+          type Query {
+            summaries: [Summary!]!
+          }
+        `,
+      }),
+    ).rejects.toThrow("Query.summaries returns a list of Value Object Summary");
+  });
+
+  test("rejects nullable id fields", async () => {
+    await expect(
+      generateFiles({
+        schema: /* graphql */ `
+          type User {
+            id: ID
+            name: String!
+          }
+
+          type Query {
+            user(id: ID!): User
+          }
+        `,
+      }),
+    ).rejects.toThrow("User.id must be a non-null scalar field");
+  });
+
+  test("rejects abstract fields with value object possible types", async () => {
+    await expect(
+      generateFiles({
+        schema: /* graphql */ `
+          union SearchResult = User | Summary
+
+          type User {
+            id: ID!
+            name: String!
+          }
+
+          type Summary {
+            total: Int!
+          }
+
+          type Query {
+            search: [SearchResult!]!
+          }
+        `,
+      }),
+    ).rejects.toThrow(
+      "Query.search returns abstract SearchResult with Value Object possible types",
+    );
   });
 });

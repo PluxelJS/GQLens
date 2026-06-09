@@ -6,43 +6,61 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
 } from "react";
 import {
+  applyInvalidations,
+  bindSelection,
   createFetchTransport,
   createLiveQuerySession,
   createLiveTransport,
   createMutationRunner,
   createNormalizedCache,
   createQuerySession,
-  applyInvalidations,
-  selectionKey,
-  watchSignal,
   type AlienSignalReader,
+  type CacheInvalidation,
   type Fetcher,
-  type InvalidationInput,
   type LiveSubscriber,
   type MutationOptions,
   type MutationSource,
   type NormalizedCache,
+  type PlannerMetadata,
   type QuerySession,
   type QuerySessionConfig,
-  type PlannerMetadata,
-  type SelectionPath,
+  type QueryDefaults,
+  type PreparedSelection,
   type SelectionStep,
 } from "@gqlens/core";
+import { useRenderTracking } from "./render-tracking";
+import { createSessionRegistry, type SessionLease, type SessionRequest } from "./session-registry";
 
+/** Live transport wiring used by useLiveQuery. */
+export interface LiveConfig {
+  /** Custom live subscriber. When omitted, a WebSocket live transport is created from endpoint. */
+  readonly subscriber?: LiveSubscriber | undefined;
+  /** Cleanup function for a custom live subscriber. Ignored for the built-in WebSocket transport. */
+  readonly close?: (() => void) | undefined;
+}
+
+/** Provider-level runtime configuration shared by all GQLens React hooks. */
 export interface GQLensConfig {
+  /** GraphQL HTTP endpoint used when fetcher is not provided. Also seeds the built-in live transport. */
   readonly endpoint?: string | undefined;
+  /** Normalized cache instance. A provider-local cache is created when omitted. */
   readonly cache?: NormalizedCache | undefined;
+  /** Custom query/mutation fetcher. Takes precedence over endpoint for HTTP operations. */
   readonly fetcher?: Fetcher | undefined;
-  readonly liveSubscriber?: LiveSubscriber | undefined;
-  readonly closeLive?: (() => void) | undefined;
-  readonly defaultPolicy?: QuerySessionConfig["policy"] | undefined;
-  readonly defaultTTL?: number | undefined;
+  /** Live-query transport configuration. */
+  readonly live?: LiveConfig | undefined;
+  /** Default query behavior for useQuery and useLiveQuery. */
+  readonly query?: QueryDefaults | undefined;
+}
+
+/** Hook-level query options. */
+export interface QueryConfig extends QuerySessionConfig {
+  /** Share a session between hooks with the same scope and query options. Omit for an isolated hook session. */
+  readonly scope?: string | undefined;
 }
 
 export interface SessionState {
@@ -56,17 +74,15 @@ export interface SessionState {
 
 interface GQLensRuntime {
   readonly cache: NormalizedCache;
-  readonly defaultPolicy: QuerySessionConfig["policy"] | undefined;
-  readonly defaultTTL: number | undefined;
+  readonly queryDefaults: QueryDefaults;
   readonly fetcher: Fetcher;
-  session(config: QuerySessionConfig): QuerySession;
-  liveSession(config: QuerySessionConfig): QuerySession;
-  invalidate(specs: readonly InvalidationInput[]): void;
+  session(config: SessionRequest): SessionLease;
+  liveSession(config: SessionRequest): SessionLease;
+  invalidate(specs: readonly CacheInvalidation[], metadata?: PlannerMetadata): void;
 }
 
 const ConfigContext = createContext<GQLensRuntime | null>(null);
-let nextMetadataId = 0;
-const metadataIds = new WeakMap<PlannerMetadata, number>();
+let nextLocalScopeId = 0;
 const defaultEndpoint = "/graphql";
 
 export function GQLensProvider(props: {
@@ -80,24 +96,27 @@ export function GQLensProvider(props: {
   );
   const [subscribe, closeLive] = useLiveTransportConfig(props.config);
   const runtime = useMemo<GQLensRuntime>(() => {
-    const sessions = new Map<string, QuerySession>();
-    const liveSessions = new Map<string, QuerySession>();
+    const sessions = createSessionRegistry((config) =>
+      createQuerySession({ cache, fetcher, ...config }),
+    );
+    const liveSessions = createSessionRegistry((config) =>
+      createLiveQuerySession({ cache, subscriber: subscribe, ...config }),
+    );
     return {
       cache,
-      defaultPolicy: props.config.defaultPolicy,
-      defaultTTL: props.config.defaultTTL,
+      queryDefaults: props.config.query ?? {},
       fetcher,
 
-      session(config: QuerySessionConfig): QuerySession {
-        return getOrCreateSession(sessions, cache, fetcher, config);
+      session(config: SessionRequest): SessionLease {
+        return sessions.acquire(config);
       },
 
-      liveSession(config: QuerySessionConfig): QuerySession {
-        return getOrCreateLiveSession(liveSessions, cache, subscribe, config);
+      liveSession(config: SessionRequest): SessionLease {
+        return liveSessions.acquire(config);
       },
 
-      invalidate(specs: readonly InvalidationInput[]): void {
-        applyInvalidations(cache, specs);
+      invalidate(specs: readonly CacheInvalidation[], metadata?: PlannerMetadata): void {
+        applyInvalidations(cache, specs, metadata);
         for (const session of sessions.values()) {
           session.refetch();
         }
@@ -106,7 +125,7 @@ export function GQLensProvider(props: {
         }
       },
     };
-  }, [cache, fetcher, props.config.defaultPolicy, props.config.defaultTTL, subscribe]);
+  }, [cache, fetcher, props.config.query, subscribe]);
 
   useEffect(() => closeLive, [closeLive]);
 
@@ -115,70 +134,66 @@ export function GQLensProvider(props: {
 
 function useLiveTransportConfig(config: GQLensConfig): readonly [LiveSubscriber, () => void] {
   return useMemo(() => {
-    if (config.liveSubscriber) {
-      return [config.liveSubscriber, config.closeLive ?? noop] as const;
+    if (config.live?.subscriber) {
+      return [config.live.subscriber, config.live.close ?? noop] as const;
     }
     return createLiveTransport(config.endpoint ?? defaultEndpoint);
-  }, [config.closeLive, config.endpoint, config.liveSubscriber]);
+  }, [config.endpoint, config.live]);
 }
 
 const noop = (): void => undefined;
 
-export function useGQLensSession(config?: Partial<QuerySessionConfig>): SessionState {
-  const global = useConfig();
-  const policy = config?.policy ?? global.defaultPolicy ?? "cache-and-network";
-  const ttl = config?.ttl ?? global.defaultTTL ?? 0;
-  const metadata = config?.metadata;
-  const session = useMemo(
-    () => global.session({ policy, ttl, metadata }),
-    [global, metadata, policy, ttl],
-  );
+export function useGQLensSession(config?: QueryConfig): SessionState {
+  return useSessionState("query", config);
+}
 
-  const reader = useRenderTracking(session);
+export function useLiveGQLensSession(config?: QueryConfig): SessionState {
+  return useSessionState("live", config);
+}
+
+function useSessionState(mode: "query" | "live", config: QueryConfig = {}): SessionState {
+  const global = useConfig();
+  const policy = config.policy ?? global.queryDefaults.policy ?? "cache-and-network";
+  const ttl = config.ttl ?? global.queryDefaults.ttl ?? 0;
+  const metadata = config.metadata;
+  const scope = useSessionScope(config.scope);
+  const lease = useMemo(
+    () => (mode === "live" ? global.liveSession : global.session)({ policy, ttl, metadata, scope }),
+    [global, metadata, mode, policy, scope, ttl],
+  );
+  useEffect(() => lease.release, [lease]);
+
+  const reader = useRenderTracking(lease.session);
 
   return {
     get loading() {
-      return reader.read(session.loading);
+      return reader.read(lease.session.loading);
     },
     get error() {
-      return reader.read(session.error);
+      return reader.read(lease.session.error);
     },
-    session,
+    session: lease.session,
     cache: global.cache,
     demand: reader.demand,
     read: reader.read,
   };
 }
 
-export function useLiveGQLensSession(config?: Partial<QuerySessionConfig>): SessionState {
-  const global = useConfig();
-  const policy = config?.policy ?? global.defaultPolicy ?? "cache-and-network";
-  const ttl = config?.ttl ?? global.defaultTTL ?? 0;
-  const metadata = config?.metadata;
-  const session = useMemo(
-    () => global.liveSession({ policy, ttl, metadata }),
-    [global, metadata, policy, ttl],
-  );
+export const useQuery: (config?: QueryConfig) => SessionState = useGQLensSession;
+export const useLiveQuery: (config?: QueryConfig) => SessionState = useLiveGQLensSession;
 
-  const reader = useRenderTracking(session);
-
-  return {
-    get loading() {
-      return reader.read(session.loading);
-    },
-    get error() {
-      return reader.read(session.error);
-    },
-    session,
-    cache: global.cache,
-    demand: reader.demand,
-    read: reader.read,
-  };
+export function usePreparedQuery(
+  selection: PreparedSelection,
+  variables: Readonly<Record<string, unknown>>,
+  config?: QueryConfig,
+): SessionState {
+  const state = useGQLensSession(config);
+  const paths = useMemo(() => bindSelection(selection, variables), [selection, variables]);
+  for (const path of paths) {
+    state.demand(path.root, path.steps);
+  }
+  return state;
 }
-
-export const useQuery: (config?: Partial<QuerySessionConfig>) => SessionState = useGQLensSession;
-export const useLiveQuery: (config?: Partial<QuerySessionConfig>) => SessionState =
-  useLiveGQLensSession;
 
 export function useMutation<TInput extends Record<string, unknown>, TData>(
   mutation: MutationSource<TInput, TData>,
@@ -209,100 +224,13 @@ function useConfig(): GQLensRuntime {
   return config;
 }
 
-function getOrCreateSession(
-  sessions: Map<string, QuerySession>,
-  cache: NormalizedCache,
-  fetcher: Fetcher,
-  config: QuerySessionConfig,
-): QuerySession {
-  const key = sessionKey(config);
-  const existing = sessions.get(key);
-  if (existing) {
-    return existing;
+function useSessionScope(scope: string | undefined): string {
+  const localScope = useRef<string | null>(null);
+  if (scope !== undefined) {
+    return `shared:${scope}`;
   }
-
-  const session = createQuerySession(cache, fetcher, config);
-  sessions.set(key, session);
-  return session;
-}
-
-function getOrCreateLiveSession(
-  sessions: Map<string, QuerySession>,
-  cache: NormalizedCache,
-  subscribe: Parameters<typeof createLiveQuerySession>[1],
-  config: QuerySessionConfig,
-): QuerySession {
-  const key = sessionKey(config);
-  const existing = sessions.get(key);
-  if (existing) {
-    return existing;
+  if (!localScope.current) {
+    localScope.current = `local:${++nextLocalScopeId}`;
   }
-
-  const session = createLiveQuerySession(cache, subscribe, config);
-  sessions.set(key, session);
-  return session;
-}
-
-function sessionKey(config: QuerySessionConfig): string {
-  return `${config.policy ?? ""}:${config.ttl ?? ""}:${metadataId(config.metadata)}`;
-}
-
-function metadataId(metadata: PlannerMetadata | undefined): number {
-  if (!metadata) {
-    return 0;
-  }
-  const existing = metadataIds.get(metadata);
-  if (existing) {
-    return existing;
-  }
-  const id = ++nextMetadataId;
-  metadataIds.set(metadata, id);
-  return id;
-}
-
-interface ReaderScope {
-  demand(root: string, steps: readonly SelectionStep[]): void;
-  read<T>(sig: AlienSignalReader<T>): T;
-}
-
-function useRenderTracking(session: QuerySession): ReaderScope {
-  const signalsRef = useRef<Set<AlienSignalReader>>(new Set());
-  const pathsRef = useRef<SelectionPath[]>([]);
-  const [, forceRender] = useReducer((value: number) => value + 1, 0);
-
-  signalsRef.current = new Set<AlienSignalReader>();
-  pathsRef.current = [];
-
-  useLayoutEffect(() => {
-    const reader = session.mount();
-    session.replace(reader, pathsRef.current);
-    session.schedule();
-    const unsubscribers = [...signalsRef.current].map((sig) => watchSignal(sig, forceRender));
-    return () => {
-      for (const unsubscribe of unsubscribers) {
-        unsubscribe();
-      }
-      session.unmount(reader);
-    };
-  });
-
-  return useMemo(
-    () => ({
-      demand(root: string, steps: readonly SelectionStep[]): void {
-        addSelection(pathsRef.current, { root, steps });
-      },
-      read<T>(sig: AlienSignalReader<T>): T {
-        signalsRef.current.add(sig);
-        return sig();
-      },
-    }),
-    [],
-  );
-}
-
-function addSelection(paths: SelectionPath[], path: SelectionPath): void {
-  const key = selectionKey(path);
-  if (!paths.some((item) => selectionKey(item) === key)) {
-    paths.push(path);
-  }
+  return localScope.current;
 }

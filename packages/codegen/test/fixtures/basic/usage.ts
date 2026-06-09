@@ -1,4 +1,4 @@
-import type { InvalidationTarget, MutationOperation, PreparedSelection } from "@gqlens/core";
+import type { CacheInvalidation, MutationOperation, PreparedSelection } from "@gqlens/core";
 import type { NormalizerEntry } from "@gqlens/core/codegen";
 import {
   api,
@@ -9,7 +9,7 @@ import {
   type PetNode,
   type QueryNode,
 } from "./accessor";
-import type { InvalidationSpec } from "./invalidation";
+import type { Invalidation } from "./invalidation";
 import { normalizerEntries } from "./normalizer";
 import type * as Types from "./types";
 
@@ -39,21 +39,28 @@ export const staticSelection: PreparedSelection = defineSelection((q, v) => {
   void q.search({ text: v("text") }).refs;
 });
 
-export const invalidation: InvalidationTarget = defineInvalidation(
+export const invalidation: CacheInvalidation = defineInvalidation(
   (q) => q.user({ id: "user-1" }).posts.ids,
 );
 
-export const typedInvalidation: InvalidationSpec = {
-  type: "User",
-  id: "user-1",
-  keys: ["name", "avatar"],
+export const typedInvalidation: Invalidation = {
+  kind: "entity",
+  ref: { type: "User", id: "user-1" },
+  paths: [[{ field: "name" }], [{ field: "avatar" }]],
 };
 
-export const renameUser: MutationOperation<Types.MutationRenameUserArgs, Types.User> =
-  api.user.rename;
+export const renameUser: MutationOperation<
+  Types.MutationRenameUserArgs,
+  Pick<
+    NonNullable<Types.Mutation["renameUser"]>,
+    "id" | "__typename" | "name" | "avatar" | "online"
+  >
+> = api.user.rename;
 
-export const addComment: MutationOperation<Types.MutationAddCommentArgs, Types.Comment> =
-  api.comment.add;
+export const addComment: MutationOperation<
+  Types.MutationAddCommentArgs,
+  Pick<NonNullable<Types.Mutation["addComment"]>, "id" | "__typename" | "body">
+> = api.comment.add;
 
 export const runtimeAccessors: {
   readonly query: typeof useQuery;
@@ -62,6 +69,10 @@ export const runtimeAccessors: {
   query: useQuery,
   liveQuery: useLiveQuery,
 };
+
+export function refetchQuery(q: ReturnType<typeof useQuery>): void {
+  q.refetch();
+}
 
 export const generatedNormalizerEntries: readonly NormalizerEntry[] = normalizerEntries;
 

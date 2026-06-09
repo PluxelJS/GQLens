@@ -1,14 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { createNormalizedCache, type SelectionStep } from "@gqlens/core";
 import {
+  bindSelection,
   createAccessorNode,
   defineInvalidation,
   defineSelection,
   type AccessorContext,
-  type EntityMeta,
-  type NormalizerEntry,
   type SchemaMeta,
 } from "@gqlens/core/codegen";
+import { cacheField, cacheSlot } from "./cache-helpers";
 
 interface QueryNode {
   readonly __typename: string | undefined;
@@ -23,7 +23,17 @@ interface QueryNode {
 interface UserNode {
   readonly __typename: string | undefined;
   readonly name: string | undefined;
+  readonly status: UserStatusNode;
   readonly posts: { readonly ids: readonly string[] | undefined };
+}
+
+interface UserStatusNode {
+  readonly online: boolean | undefined;
+  readonly source: StatusSourceNode;
+}
+
+interface StatusSourceNode {
+  readonly kind: string | undefined;
 }
 
 interface PetNode {
@@ -72,7 +82,35 @@ const schemaMeta: SchemaMeta = {
       fields: {
         __typename: { name: "__typename", kind: "scalar" },
         name: { name: "name", kind: "scalar" },
+        status: {
+          name: "status",
+          kind: "value",
+          typeName: "UserStatus",
+          targetObjectKind: "value",
+        },
         posts: { name: "posts", kind: "list", typeName: "Post" },
+      },
+    },
+    UserStatus: {
+      type: "UserStatus",
+      kind: "value",
+      identityKeys: [],
+      fields: {
+        online: { name: "online", kind: "scalar" },
+        source: {
+          name: "source",
+          kind: "value",
+          typeName: "StatusSource",
+          targetObjectKind: "value",
+        },
+      },
+    },
+    StatusSource: {
+      type: "StatusSource",
+      kind: "value",
+      identityKeys: [],
+      fields: {
+        kind: { name: "kind", kind: "scalar" },
       },
     },
     Pet: {
@@ -106,49 +144,6 @@ const schemaMeta: SchemaMeta = {
   },
 };
 
-describe("core/codegen types", () => {
-  describe("EntityMeta", () => {
-    test("can create EntityMeta instances", () => {
-      const meta: EntityMeta = {
-        type: "User",
-        identityKeys: ["id", "__typename"],
-        fields: {
-          name: { name: "name", kind: "scalar" },
-          avatar: { name: "avatar", kind: "scalar" },
-        },
-      };
-      expect(meta.type).toBe("User");
-      expect(meta.identityKeys).toContain("id");
-      expect(meta.fields["name"]?.kind).toBe("scalar");
-    });
-  });
-
-  describe("NormalizerEntry", () => {
-    test("supports nested and list fields", () => {
-      const entry: NormalizerEntry = {
-        type: "Post",
-        fields: [
-          { responseKey: "title", cacheKey: "title" },
-          { responseKey: "author", cacheKey: "author", nestedType: "User" },
-          { responseKey: "comments", cacheKey: "comments", nestedType: "Comment", isList: true },
-        ],
-      };
-      expect(entry.fields[1]!.nestedType).toBe("User");
-      expect(entry.fields[2]!.isList).toBe(true);
-    });
-  });
-
-  describe("serializable metadata", () => {
-    test("can round-trip normalizer entries through JSON", () => {
-      const entries: NormalizerEntry[] = [
-        { type: "User", fields: [{ responseKey: "name", cacheKey: "name" }] },
-      ];
-      const read = JSON.parse(JSON.stringify(entries)) as NormalizerEntry[];
-      expect(read).toStrictEqual(entries);
-    });
-  });
-});
-
 describe("createAccessorNode", () => {
   test("declares demand and reads entity fields through root slots", () => {
     const cache = createNormalizedCache();
@@ -175,7 +170,7 @@ describe("createAccessorNode", () => {
   test("uses root id args as an entity resolver before a slot exists", () => {
     const cache = createNormalizedCache();
     const demands: readonly SelectionStep[][] = [];
-    cache.field(cache.entity("User", "2"), "name").sig("Bob");
+    cacheField(cache, cache.entity("User", "2"), "name").sig("Bob");
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
 
     expect(query.user({ id: "2" }).name).toBe("Bob");
@@ -185,8 +180,8 @@ describe("createAccessorNode", () => {
   test("prefers cached null root slots over root id entity shortcuts", () => {
     const cache = createNormalizedCache();
     const demands: readonly SelectionStep[][] = [];
-    cache.field(cache.entity("User", "2"), "name").sig("stale Bob");
-    cache.slot('Query.user({"id":"2"})').sig(null);
+    cacheField(cache, cache.entity("User", "2"), "name").sig("stale Bob");
+    cacheSlot(cache, 'Query.user({"id":"2"})').sig(null);
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
 
     expect(query.user({ id: "2" }).name).toBeUndefined();
@@ -213,6 +208,23 @@ describe("createAccessorNode", () => {
     expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "posts" }, { field: "ids" }]]);
   });
 
+  test("reads embedded value object leaves from the owning entity field path", () => {
+    const cache = createNormalizedCache();
+    const demands: readonly SelectionStep[][] = [];
+    cacheField(cache, cache.entity("User", "1"), "status.source.kind").sig("hmr");
+    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+
+    expect(query.user({ id: "1" }).status.source.kind).toBe("hmr");
+    expect(demands).toStrictEqual([
+      [
+        { field: "user", args: { id: "1" } },
+        { field: "status" },
+        { field: "source" },
+        { field: "kind" },
+      ],
+    ]);
+  });
+
   test("reuses relation and list accessor objects without caching scalar reads", () => {
     const cache = createNormalizedCache();
     const demands: readonly SelectionStep[][] = [];
@@ -226,7 +238,7 @@ describe("createAccessorNode", () => {
 
     (demands as SelectionStep[][]).splice(0);
     expect(query.viewer.name).toBe("Alice");
-    cache.field(cache.entity("User", "1"), "name").sig("Bob");
+    cacheField(cache, cache.entity("User", "1"), "name").sig("Bob");
     expect(query.viewer.name).toBe("Bob");
     expect(demands).toStrictEqual([
       [{ field: "viewer" }, { field: "name" }],
@@ -261,7 +273,7 @@ describe("createAccessorNode", () => {
     ]);
   });
 
-  test("returns undefined for missing list identity", () => {
+  test("returns undefined for missing relation list ids", () => {
     const cache = createNormalizedCache();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
@@ -280,7 +292,7 @@ describe("createAccessorNode", () => {
         { __typename: "Cat", id: "2", name: "Miso", meows: true },
       ],
     });
-    cache.slot('Query.search({"text":"mi"}).refs').sig([
+    cacheSlot(cache, 'Query.search({"text":"mi"}).refs').sig([
       { type: "User", id: "1" },
       { type: "Cat", id: "2" },
     ]);
@@ -300,8 +312,8 @@ describe("createAccessorNode", () => {
       pet: { __typename: "Cat", id: "1", name: "Miso", meows: true },
       dog: { __typename: "Dog", id: "2", name: "Rex", barks: true },
     });
-    cache.slot('Query.pet({"id":"1"})').sig({ type: "Cat", id: "1" });
-    cache.slot('Query.pet({"id":"2"})').sig({ type: "Dog", id: "2" });
+    cacheSlot(cache, 'Query.pet({"id":"1"})').sig({ type: "Cat", id: "1" });
+    cacheSlot(cache, 'Query.pet({"id":"2"})').sig({ type: "Dog", id: "2" });
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
 
     expect(query.pet({ id: "1" }).$on.Cat.meows).toBe(true);
@@ -346,6 +358,87 @@ describe("createAccessorNode", () => {
     ]);
   });
 
+  test("bindSelection binds prepared variables into plain selection paths", () => {
+    const selection = defineSelection<QueryNode>(
+      schemaMeta,
+      schemaMeta.query,
+      (query, variable) => {
+        void query.user({ id: variable("id") as unknown as string }).name;
+      },
+    );
+
+    expect(bindSelection(selection, { id: "1" })).toStrictEqual([
+      {
+        root: "Query",
+        steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+      },
+    ]);
+  });
+
+  test("bindSelection fails fast when a prepared variable is missing", () => {
+    const selection = defineSelection<QueryNode>(
+      schemaMeta,
+      schemaMeta.query,
+      (query, variable) => {
+        void query.user({ id: variable("id") as unknown as string }).name;
+      },
+    );
+
+    expect(() => bindSelection(selection, {})).toThrow(
+      "Missing GQLens prepared selection variable: id",
+    );
+  });
+
+  test("bindSelection only accepts own variable bindings", () => {
+    const selection = defineSelection<QueryNode>(
+      schemaMeta,
+      schemaMeta.query,
+      (query, variable) => {
+        void query.user({ id: variable("id") as unknown as string }).name;
+      },
+    );
+    const variables = Object.create({ id: "1" }) as Record<string, unknown>;
+
+    expect(() => bindSelection(selection, variables)).toThrow(
+      "Missing GQLens prepared selection variable: id",
+    );
+  });
+
+  test("bindSelection preserves non-plain literal values while binding nested variables", () => {
+    const since = new Date("2026-01-01T00:00:00.000Z");
+    const selection = {
+      variables: ["id"],
+      paths: [
+        {
+          root: "Query",
+          steps: [
+            {
+              field: "search",
+              args: {
+                filter: {
+                  owner: { __gqlensVariable: "id" },
+                  since,
+                },
+              },
+            },
+            { field: "ids" },
+          ],
+        },
+      ],
+    };
+
+    const [path] = bindSelection(selection, { id: "1" });
+    expect(path).toBeDefined();
+    expect(path?.steps[0]?.args).toStrictEqual({
+      filter: {
+        owner: "1",
+        since,
+      },
+    });
+    const filter = path!.steps[0]!.args!["filter"] as { readonly since: Date };
+    expect(filter.since).toBe(since);
+  });
+
   test("defineInvalidation can capture relation accessors without reading a field", () => {
     const path = defineInvalidation<QueryNode>(
       schemaMeta,
@@ -356,7 +449,7 @@ describe("createAccessorNode", () => {
     expect(path).toStrictEqual({
       kind: "root",
       root: "Query",
-      steps: [{ field: "user", args: { id: "1" } }, { field: "posts" }],
+      paths: [[{ field: "user", args: { id: "1" } }, { field: "posts" }]],
     });
   });
 });

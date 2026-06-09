@@ -85,7 +85,7 @@ abstract list：
 q.search({ text }).refs;
 ```
 
-`ids` 只适合元素类型唯一且 identity key 不含类型歧义的 entity list。interface / union list 必须使用 `refs`，因为不同 concrete type 可能共享同一个 `id`。
+`ids` 只适合元素类型唯一的 entity list。interface / union list 必须使用 `refs`，因为不同 concrete type 可能共享同一个 `id`，需要 `type + id` 才能形成稳定 entity ref。
 
 列表只表达成员、顺序、分页窗口。行字段必须重新进入 root / entity accessor：
 

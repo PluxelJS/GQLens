@@ -1,229 +1,273 @@
-import { relationSlotKey } from "./keys";
-import { createSignal } from "./signal";
-import type { EntityRef, FieldSignal, GraphQLResult, NormalizedCache } from "./types";
-
-type FieldEntry<T = unknown> = FieldSignal<T>;
-
-const entityRefPool = new Map<string, EntityRef>();
-
-function canonicalEntityRef(type: string, id: string): EntityRef {
-  const key = `${type}:${id}`;
-  let ref = entityRefPool.get(key);
-  if (!ref) {
-    ref = { type, id };
-    entityRefPool.set(key, ref);
-  }
-  return ref;
-}
+import { createEntityRefStore } from "./cache/entity";
+import {
+  cacheFieldKey,
+  entityFieldKey,
+  isListIdentityStep,
+  suffixedSlotKey,
+} from "./cache/address";
+import { normalizeGraphQLResult } from "./cache/normalize";
+import {
+  createCacheStore,
+  expiresAt,
+  getEntry,
+  isFresh,
+  markStale,
+  type CacheStore,
+} from "./cache/store";
+import type {
+  CacheAddress,
+  CacheInvalidation,
+  CachePath,
+  CacheTransaction,
+  CacheWriteOptions,
+  EntityRef,
+  FieldSignal,
+  GraphQLResult,
+  NormalizedCache,
+  PlannerMetadata,
+  SelectionPath,
+} from "./types";
 
 export function createNormalizedCache(): NormalizedCache {
-  const fields = new Map<string, FieldEntry>();
-  const slots = new Map<string, FieldEntry>();
+  const store = createCacheStore();
+  const entityRefs = createEntityRefStore();
 
-  return {
-    field<T = unknown>(ref: EntityRef, key: string): FieldSignal<T> {
-      return getEntry<T>(fields, entityFieldKey(ref, key));
+  const cache: NormalizedCache = {
+    entry<T = unknown>(address: CacheAddress): FieldSignal<T> {
+      return getEntry<T>(entryStore(store, address), publicAddressKey(address));
     },
 
-    slot<T = unknown>(key: string): FieldSignal<T> {
-      return getEntry<T>(slots, key);
+    peek<T = unknown>(address: CacheAddress): FieldSignal<T> | undefined {
+      return entryStore(store, address).get(publicAddressKey(address)) as
+        | FieldSignal<T>
+        | undefined;
+    },
+
+    read<T = unknown>(address: CacheAddress): T | undefined {
+      return cache.peek<T>(address)?.sig();
+    },
+
+    write<T = unknown>(address: CacheAddress, value: T, options?: CacheWriteOptions): void {
+      const entry = cache.entry<T>(address);
+      entry.sig(value);
+      entry.expires = expiresAt(options?.ttl ?? 0);
+    },
+
+    isFresh(address: CacheAddress): boolean {
+      return isFresh(entryStore(store, address).get(publicAddressKey(address)));
     },
 
     entity(type: string, id: string): EntityRef {
-      return canonicalEntityRef(type, id);
+      return entityRefs.entity(type, id);
     },
 
-    normalize(data: GraphQLResult, ttl = 0): void {
-      const expires = expiry(ttl);
-      normalizeRoot(data, fields, slots, expires);
+    normalize(data: GraphQLResult, ttl = 0, metadata?: PlannerMetadata): void {
+      normalizeGraphQLResult(data, store, entityRefs, expiresAt(ttl), metadata);
     },
 
-    invalidate(ref: EntityRef, keys?: readonly string[]): void {
-      if (keys && keys.length > 0) {
-        for (const key of keys) {
-          markStale(fields.get(entityFieldKey(ref, key)));
-        }
-        return;
+    invalidate(targetOrTargets: CacheInvalidation | readonly CacheInvalidation[]): void {
+      const targets = Array.isArray(targetOrTargets) ? targetOrTargets : [targetOrTargets];
+      for (const target of targets) {
+        invalidateTarget(cache, store, target);
       }
-
-      const prefix = `${ref.type}:${ref.id}.`;
-      for (const [key, entry] of fields) {
-        if (key.startsWith(prefix)) {
-          markStale(entry);
-        }
-      }
-    },
-
-    invalidateSlot(key: string): void {
-      markStale(slots.get(key));
-    },
-
-    isCached(ref: EntityRef, fieldKey: string): boolean {
-      return isFresh(fields.get(entityFieldKey(ref, fieldKey)));
-    },
-
-    isSlotCached(key: string): boolean {
-      return isFresh(slots.get(key));
     },
 
     clear(): void {
-      fields.clear();
-      slots.clear();
+      store.fields.clear();
+      store.slots.clear();
+    },
+
+    transaction<T>(run: (cache: NormalizedCache) => T): CacheTransaction<T> {
+      const snapshot = snapshotStore(store);
+      const result = run(cache);
+      return {
+        result,
+        rollback(): void {
+          restoreStore(store, snapshot);
+        },
+      };
     },
   };
+
+  return cache;
 }
 
-function getEntry<T>(store: Map<string, FieldEntry>, key: string): FieldSignal<T> {
-  const existing = store.get(key);
-  if (existing) {
-    return existing as FieldSignal<T>;
+function publicAddressKey(address: CacheAddress): string {
+  const suffix =
+    address.facet && address.facet !== "value" && address.facet !== "link"
+      ? address.facet
+      : undefined;
+  const pathKey = cacheFieldKey(address.path);
+  if (address.owner.kind === "root") {
+    const base = `${address.owner.root}.${pathKey}`;
+    return suffix ? suffixedSlotKey(base, suffix) : base;
   }
-
-  const entry: FieldEntry<T> = {
-    sig: createSignal<T>(undefined as T),
-    expires: 0,
-  };
-  store.set(key, entry as FieldEntry);
-  return entry;
+  const base = entityFieldKey(address.owner.ref, pathKey);
+  return suffix ? suffixedSlotKey(base, suffix) : base;
 }
 
-function writeEntry<T>(
-  store: Map<string, FieldEntry>,
-  key: string,
-  value: T,
-  expires: number,
-): void {
-  const entry = getEntry<T>(store, key);
-  entry.sig(value);
-  entry.expires = expires;
-}
-
-function normalizeRoot(
-  data: GraphQLResult,
-  fields: Map<string, FieldEntry>,
-  slots: Map<string, FieldEntry>,
-  expires: number,
-): void {
-  for (const [rootField, value] of Object.entries(data)) {
-    const slotBase = `Query.${rootField}`;
-    normalizeValue(value, fields, slots, expires, slotBase);
-  }
-}
-
-function normalizeValue(
-  value: unknown,
-  fields: Map<string, FieldEntry>,
-  slots: Map<string, FieldEntry>,
-  expires: number,
-  slotKey: string,
-): EntityRef | readonly EntityRef[] | null | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
-    writeEntry(slots, slotKey, null, expires);
-    clearSlotIds(slots, slotKey);
-    return null;
-  }
-
-  if (Array.isArray(value)) {
-    if (!value.some(isEntityObject)) {
-      writeEntry(slots, slotKey, value, expires);
-      clearSlotIds(slots, slotKey);
-      return undefined;
+function invalidateEntity(store: CacheStore, ref: EntityRef, paths?: readonly CachePath[]): void {
+  if (paths && paths.length > 0) {
+    for (const path of paths) {
+      invalidateAddressFamily(store, entityFieldKey(ref, cacheFieldKey(path)));
     }
-
-    const refs = value.flatMap((item) =>
-      isEntityObject(item) ? [normalizeEntity(item, fields, slots, expires)] : [],
-    );
-    writeEntry(
-      slots,
-      `${slotKey}.ids`,
-      refs.map((ref) => ref.id),
-      expires,
-    );
-    writeEntry(slots, `${slotKey}.refs`, refs, expires);
-    writeEntry(slots, slotKey, refs, expires);
-    return refs;
+    return;
   }
 
-  if (isEntityObject(value)) {
-    const ref = normalizeEntity(value, fields, slots, expires);
-    writeEntry(slots, slotKey, ref, expires);
-    clearSlotIds(slots, slotKey);
-    return ref;
-  }
-
-  writeEntry(slots, slotKey, value, expires);
-  clearSlotIds(slots, slotKey);
-  return undefined;
-}
-
-function clearSlotIds(slots: Map<string, FieldEntry>, slotKey: string): void {
-  clearSlotSuffix(slots, slotKey, "ids");
-  clearSlotSuffix(slots, slotKey, "refs");
-}
-
-function clearSlotSuffix(slots: Map<string, FieldEntry>, slotKey: string, suffix: string): void {
-  const entry = slots.get(`${slotKey}.${suffix}`);
-  if (entry) {
-    entry.sig(undefined);
-    entry.expires = 0;
+  const prefix = `${ref.type}:${ref.id}.`;
+  for (const entries of [store.fields, store.slots]) {
+    for (const [key, entry] of entries) {
+      if (key.startsWith(prefix)) {
+        markStale(entry);
+      }
+    }
   }
 }
 
-function normalizeEntity(
-  entity: Record<string, unknown>,
-  fields: Map<string, FieldEntry>,
-  slots: Map<string, FieldEntry>,
-  expires: number,
-): EntityRef {
-  const ref = canonicalEntityRef(String(entity["__typename"]), String(entity["id"]));
+function invalidateTarget(
+  cache: NormalizedCache,
+  store: CacheStore,
+  target: CacheInvalidation,
+): void {
+  if (target.kind === "address") {
+    const key = publicAddressKey(target.address);
+    if (target.family) {
+      invalidateAddressFamily(store, key);
+    } else {
+      markStale(entryStore(store, target.address).get(key));
+    }
+    return;
+  }
 
-  for (const [key, value] of Object.entries(entity)) {
-    if (isFieldValue(value)) {
-      writeEntry(fields, entityFieldKey(ref, key), value, expires);
+  if (target.kind === "entity") {
+    invalidateEntity(store, target.ref, target.paths);
+    return;
+  }
+
+  if (target.kind === "root") {
+    invalidateRootTarget(store, target.root, target.paths);
+    return;
+  }
+
+  invalidateSelection(cache, store, target.path, target.metadata);
+}
+
+function invalidateRootTarget(
+  store: CacheStore,
+  root: string,
+  paths: readonly CachePath[] | undefined,
+): void {
+  if (paths && paths.length > 0) {
+    for (const path of paths) {
+      invalidateAddressFamily(store, publicAddressKey({ owner: { kind: "root", root }, path }));
+    }
+    return;
+  }
+
+  const prefix = `${root}.`;
+  for (const [key, entry] of store.slots) {
+    if (key.startsWith(prefix)) {
+      markStale(entry);
+    }
+  }
+}
+
+function invalidateSelection(
+  cache: NormalizedCache,
+  store: CacheStore,
+  path: SelectionPath,
+  metadata: PlannerMetadata | undefined,
+): void {
+  const rootPath = isListIdentityStep(path.steps.at(-1)) ? path.steps.slice(0, -1) : path.steps;
+  invalidateAddressFamily(
+    store,
+    publicAddressKey({ owner: { kind: "root", root: path.root }, path: rootPath }),
+  );
+
+  const [rootStep, ...rest] = path.steps;
+  const keySteps = isListIdentityStep(rest.at(-1)) ? rest.slice(0, -1) : rest;
+  const id = rootStep?.args?.["id"];
+  const type = rootStep ? metadata?.roots?.[rootStep.field]?.graphQLType : undefined;
+  const isAbstract = rootStep ? metadata?.roots?.[rootStep.field]?.isAbstract : undefined;
+  if (!rootStep || keySteps.length === 0 || id === undefined || !type || isAbstract) {
+    return;
+  }
+  invalidateEntity(store, cache.entity(type, String(id)), [keySteps]);
+}
+
+function invalidateAddressFamily(store: CacheStore, key: string): void {
+  markStale(store.fields.get(key));
+  markStale(store.slots.get(key));
+  markStale(store.slots.get(suffixedSlotKey(key, "ids")));
+  markStale(store.slots.get(suffixedSlotKey(key, "refs")));
+}
+
+function entryStore(store: CacheStore, address: CacheAddress): Map<string, FieldSignal> {
+  if (
+    address.owner.kind === "root" ||
+    address.facet === "link" ||
+    address.facet === "ids" ||
+    address.facet === "refs"
+  ) {
+    return store.slots;
+  }
+  return store.fields;
+}
+
+interface StoreSnapshot {
+  readonly fields: Map<string, EntrySnapshot>;
+  readonly slots: Map<string, EntrySnapshot>;
+}
+
+interface EntrySnapshot {
+  readonly entry: FieldSignal<unknown>;
+  readonly value: unknown;
+  readonly expires: number;
+}
+
+function snapshotStore(store: CacheStore): StoreSnapshot {
+  return {
+    fields: snapshotEntries(store.fields),
+    slots: snapshotEntries(store.slots),
+  };
+}
+
+function snapshotEntries(entries: Map<string, FieldSignal>): Map<string, EntrySnapshot> {
+  return new Map(
+    [...entries].map(([key, entry]) => [
+      key,
+      { entry, value: entry.sig(), expires: entry.expires },
+    ]),
+  );
+}
+
+function restoreStore(store: CacheStore, snapshot: StoreSnapshot): void {
+  restoreEntries(store.fields, snapshot.fields);
+  restoreEntries(store.slots, snapshot.slots);
+}
+
+function restoreEntries(
+  entries: Map<string, FieldSignal>,
+  snapshot: Map<string, EntrySnapshot>,
+): void {
+  for (const [key, entry] of entries) {
+    const saved = snapshot.get(key);
+    if (saved && saved.entry === entry) {
+      restoreEntry(entry, saved);
       continue;
     }
-
-    normalizeValue(value, fields, slots, expires, relationSlotKey(ref, { field: key }));
+    entry.sig(undefined);
+    entry.expires = 0;
+    entries.delete(key);
   }
 
-  return ref;
-}
-
-function entityFieldKey(ref: EntityRef, key: string): string {
-  return `${ref.type}:${ref.id}.${key}`;
-}
-
-function expiry(ttl: number): number {
-  return ttl > 0 ? Date.now() + ttl : 0;
-}
-
-function isFresh(entry: FieldEntry | undefined): boolean {
-  if (!entry) {
-    return false;
-  }
-  if (entry.sig() === undefined) {
-    return false;
-  }
-  return entry.expires === 0 || entry.expires > Date.now();
-}
-
-function markStale(entry: FieldEntry | undefined): void {
-  if (entry) {
-    entry.expires = Date.now() - 1;
+  for (const [key, saved] of snapshot) {
+    restoreEntry(saved.entry, saved);
+    entries.set(key, saved.entry);
   }
 }
 
-function isEntityObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && "__typename" in value && "id" in value;
-}
-
-function isFieldValue(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return !value.some(isEntityObject);
-  }
-  return value === null || typeof value !== "object" || !isEntityObject(value);
+function restoreEntry(entry: FieldSignal<unknown>, snapshot: EntrySnapshot): void {
+  entry.sig(snapshot.value);
+  entry.expires = snapshot.expires;
 }
