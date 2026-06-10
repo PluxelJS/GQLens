@@ -89,7 +89,7 @@ post.author.avatar   → User:1.avatar
 
 这个规则的重点是保持响应式边界可预测：有 identity 的东西进入 normalized graph；没有 identity 的 schema object 只在父 root/entity/value path 下拥有 embedded address，而不是伪装成全局实体。
 
-非 `id` 的 entity 识别策略不属于当前设计。Value Object 的 embedded address、列表限制与后续实现路径见 [精进：Entity 识别策略](./实现/精进-Entity识别策略.md)。
+非 `id` 的 entity 识别策略不属于当前设计。Value Object 的 embedded address、列表限制和 schema contract 见 [服务端 Schema 设计指南](./服务端-Schema设计指南.md)。
 
 ## Store 接口
 
@@ -97,6 +97,26 @@ post.author.avatar   → User:1.avatar
 interface FieldSignal<T = unknown> {
   readonly sig: Signal<T>;
   expires: number;
+}
+
+interface GraphDataRecord {
+  readonly value: unknown;
+  readonly expires: number;
+}
+
+interface GraphDataRecordMap {
+  get(key: string): GraphDataRecord | undefined;
+  set(key: string, record: GraphDataRecord): void;
+  delete(key: string): boolean;
+  clear(): void;
+  entries(): Iterable<readonly [string, GraphDataRecord]>;
+
+  onEvict?(listener: (key: string, record: GraphDataRecord) => void): () => void;
+}
+
+interface GraphDataRecords {
+  readonly fields: GraphDataRecordMap;
+  readonly slots: GraphDataRecordMap;
 }
 
 interface GraphDataStore {
@@ -108,9 +128,11 @@ interface GraphDataStore {
   invalidate(target: GraphDataInvalidation | readonly GraphDataInvalidation[]): void;
   transaction<T>(run: (store: GraphDataStore) => T): GraphDataTransaction<T>;
   entity(type: string, id: string): EntityRef;
-  normalize(data: GraphQLResult, ttl?: number): void;
+  normalize(data: GraphQLResult, ttl?: number, metadata?: PlannerMetadata): void;
   clear(): void;
 }
+
+function createGraphDataStore(options?: { readonly records?: GraphDataRecords }): GraphDataStore;
 ```
 
 `GraphDataAddress` 是稳定 store 地址：`owner` 表达 root/entity，`path` 表达字段路径，`facet` 表达 relation family：
@@ -126,6 +148,33 @@ type GraphDataFacet = "value" | "link" | "ids" | "refs";
 字符串 store key 只是 store 内部编码细节；公共读写、invalidation、optimistic 写入和 generated runtime 都使用 `GraphDataAddress`。TTL / stale 判断留在 session 调度层处理。
 
 `clear()` 清空所有 field 和 slot 条目，不触动 EntityRef 引用池。适用场景：登出后清除用户数据、路由跳转重置缓存。
+
+默认 records 是内存 `Map`。需要持久化、LRU、SIEVE 或自定义 TTL 时，应用可以注入 `GraphDataRecords`：
+
+```ts
+const store = createGraphDataStore({
+  records: {
+    fields: new Map(),
+    slots: new Map(),
+  },
+});
+```
+
+`GraphDataStore` 仍负责业务语义：field / slot、TTL、invalidation、transaction 和 signal 通知；外部 records map 只负责存放 record。Core 不内置 IndexedDB、文件、SQLite 或浏览器专用持久化格式。
+
+外部 records map 必须遵守这些约束：
+
+- `get()` 必须同步返回；字段读取不能等待异步 storage。
+- store 创建后，外部不得绕过 GQLens 主动 `set()` 业务数据。
+- store 创建后，外部不得静默 `delete()` / `clear()` records。
+- `get()` 可以更新 LRU recency，但不能删除 records。
+- `GraphDataRecord` 写入后应按不可变数据看待，不要原地修改。
+- missing 用 absence 表达，即 `get(key) === undefined`；不要用 `{ value: undefined }`。
+- `entries()` 必须反映当前 records，供 `clear()`、invalidation、debug 统计或未来导出使用。
+- 自动 eviction 必须同步触发 `onEvict(key, oldRecord)`。
+- 没有 `onEvict` 的 map 会被视为稳定普通 map。
+
+违反这些约束会导致 signal 不通知、active reader 继续看到旧值、refetch 不触发、invalidation 漏标 stale 或 optimistic rollback 不完整。
 
 ## TTL
 
@@ -150,6 +199,10 @@ store 必须保留 missing / null / stale 的区别：
 
 stale entry 不得被读路径当成 missing。读取返回旧值，调度层负责 refetch。
 
+外部 records map 的容量 eviction 与 TTL stale 是两件事。TTL 过期不删除 record；外部 eviction 删除 record 后，该地址从 fresh/stale 变成 missing，active selection 再按正常流程 refetch。
+
+恢复持久化数据时，建议默认写成 stale：UI 可以先读旧值，随后由 active selection 网络校准。异步持久化应先加载到内存镜像，再创建 `GraphDataStore`；GQLens v1 不支持 provider / query 已挂载后再异步恢复 records。
+
 ## 一致性
 
 所有写路径最终收敛到同一个 store：
@@ -164,6 +217,19 @@ optimistic ─────┘
 不允许任何路径绕过 store 直接通知 UI。
 
 这条约束让 query、live、mutation、optimistic update 可以共享同一套冲突和订阅语义。UI 不需要知道数据来自首次请求、后台刷新还是实时推送。
+
+## 派生缓存边界
+
+只有 GraphQL 业务数据进入 `GraphDataRecords`。以下运行时状态可重算，丢弃后不改变 UI 业务语义，因此不持久化，也不进入 records map：
+
+- operation plan cache：selection paths 到 GraphQL operation plan 的 exact SIEVE cache。
+- completed freshness map：query session 内已完成 operation 的 freshness 记录。
+- React / Solid session registry：adapter 层的 session 复用状态。
+- render tracking：当前 render 的 selection 收集状态。
+- accessor 局部 memo：访问链上的 child accessor 复用。
+- EntityRef object pool：稳定 `{ type, id }` 引用，减少无意义 signal update。
+
+这些状态可以有容量边界或生命周期边界，但不应和业务数据 records 混在一起。需要跨访问恢复的数据只能是 `fields` / `slots` records。
 
 ## EntityRef 引用复用
 

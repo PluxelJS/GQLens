@@ -175,7 +175,7 @@ defineInvalidation((q) => q.todos({ done: false }).ids);
 defineInvalidation((q) => q.user({ id }).name);
 ```
 
-它只收集 affected path / slot，不读取 cache signal，不改变 active selection。
+它只收集 affected path / slot，不读取 store signal，不改变 active selection。
 
 ## 禁止形态
 

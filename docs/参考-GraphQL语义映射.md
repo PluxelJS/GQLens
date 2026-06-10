@@ -21,7 +21,7 @@
 | `__typename`             | 普通字段读取；Planner 可为 identity 自动补齐                        |
 | directive                | 默认不暴露字段级 directive API；条件需求优先用宿主控制流表达        |
 | nullability              | `null` 表示服务端 null；`undefined` 表示 missing / 分支不适用       |
-| partial error            | data 仍写 cache；GraphQL errors 进入 session error 状态             |
+| partial error            | data 仍写 store；GraphQL errors 进入 session error 状态             |
 | subscription             | 可作为 `LiveSubscriber` 的一种实现；不等同于所有 reactive query     |
 | defer / stream           | 增量 payload 写入同一 cache；调度策略可扩展，accessor shape 不变化  |
 | schema directive         | 只影响 codegen metadata；例如 deprecated、auth hint、cache hint     |

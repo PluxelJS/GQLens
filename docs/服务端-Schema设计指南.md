@@ -287,3 +287,21 @@ nullable `id` 会让 cache address 无法稳定生成。
 - 名称、slug、排序、分页位置变化是否不会改变 `id`。
 
 如果某个类型无法满足这些规则，它应先作为 Value Object 或 scalar payload 设计；需要进入 normalized graph 时再显式补 `id: ID!`。
+
+## Object Kind
+
+GQLens 只把两类 object 进入 normalized graph：
+
+- `Entity Object`：concrete object type 且有非空 scalar `id`
+- `Value Object`：concrete object type 且没有 `id`
+
+`interface` / `union` 只有在所有 possible concrete types 都是 `Entity Object` 时才适合 GQLens accessor。混合 entity / value 的 abstract type 不应进入 object list 或 abstract list 语义。
+
+这条规则决定了：
+
+- entity field 写入共享 `Type:<id>` 地址
+- value object 只沿父 owner 写入 embedded leaf
+- object list 需要稳定 row identity，因此 item 必须是 `Entity Object`
+- abstract list 只能暴露 `.refs`
+
+GQLens 不提供 composite key policy；服务端如果需要复合身份，仍应把它 canonicalize 成 opaque `id: ID!`。

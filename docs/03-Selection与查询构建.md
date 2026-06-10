@@ -107,7 +107,7 @@ prepared selection 的约束：
 
 ```
 render-time discovery:
-  render 组件 → 读取字段 → 得到 selection → 发请求 → 写 cache → 再 render
+  render 组件 → 读取字段 → 得到 selection → 发请求 → 写 store → 再 render
 
 prepared selection:
   已知 selection → 先发请求 / 预取 / 生成 hash → render 组件 → 读取同一批字段
@@ -248,6 +248,14 @@ query UserDemand($id: ID!) {
   }
 }
 ```
+
+### Plan Cache 与并发
+
+当前 session 内会为 exact selection 维护一个 per-session plan cache，键是 selection paths 的稳定摘要，而不是 value-independent shape template。这个缓存采用有界淘汰，目的是避免同一 session 内重复渲染时反复重建计划。
+
+prepared selection 会进入同一条 session 管道：先 bind 变量，再走 plan / fetch / normalize / sync slots。它只是 demand 来源不同，不是另一套请求语义。
+
+并发上，旧响应不应覆盖新 selection 的结果。当前策略是请求版本单调递增，只有最新请求可以写回 store、更新 completed 或 error。这样可以避免窄查询晚返回时覆盖宽查询的新字段。
 
 ## 查询策略
 
