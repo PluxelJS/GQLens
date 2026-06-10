@@ -96,7 +96,6 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     ".turbo/**",
     "packages/codegen/test/fixtures/**/accessor.ts",
     "packages/codegen/test/fixtures/**/invalidation.ts",
-    "packages/codegen/test/fixtures/**/normalizer.ts",
     "packages/codegen/test/fixtures/**/types.ts",
   ],
 });

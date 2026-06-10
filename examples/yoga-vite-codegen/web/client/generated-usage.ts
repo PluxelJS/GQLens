@@ -1,7 +1,8 @@
-import type { MutationOperation, PreparedSelection } from "@gqlens/core";
+import type { PreparedSelection } from "@gqlens/core";
 import { api, defineInvalidation, defineSelection, type QueryNode } from "../gqlens/accessor";
-import type { InvalidationSpec } from "../gqlens/invalidation";
+import type { Invalidation } from "../gqlens/invalidation";
 import type * as Types from "../gqlens/types";
+import { createIndexedDBGraphDataRecords } from "./idb-records";
 
 export function readGeneratedAccessor(q: QueryNode): {
   readonly viewerName: Types.User["name"] | undefined;
@@ -26,19 +27,15 @@ export const userCardSelection: PreparedSelection = defineSelection((q, v) => {
 
 export const commentsInvalidation = defineInvalidation((q) => q.post({ id: "p1" }).comments.ids);
 
-export const typedInvalidation: InvalidationSpec = {
-  type: "User",
-  id: "u1",
-  keys: ["online"],
+export const typedInvalidation: Invalidation = {
+  kind: "entity",
+  ref: { type: "User", id: "u1" },
+  paths: [[{ field: "online" }]],
 };
 
-export const addCommentOperation: MutationOperation<Types.MutationAddCommentArgs, Types.Comment> =
-  api.comment.add;
+export const addCommentOperation: typeof api.comment.add = api.comment.add;
 
-export const toggleUserOperation: MutationOperation<
-  Types.MutationToggleUserOnlineArgs,
-  Types.User
-> = api.userOnline.toggle;
+export const toggleUserOperation: typeof api.userOnline.toggle = api.userOnline.toggle;
 
 export function typecheckGQLensContract(q: QueryNode): void {
   void q.viewer.name;
@@ -56,4 +53,8 @@ export function typecheckGQLensContract(q: QueryNode): void {
 
   // @ts-expect-error Mutation groups are generated from schema field names.
   void api.user.toggle;
+}
+
+export async function createBrowserPersistedRecords() {
+  return createIndexedDBGraphDataRecords();
 }

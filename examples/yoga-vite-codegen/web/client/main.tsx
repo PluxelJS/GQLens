@@ -1,20 +1,34 @@
 import { StrictMode, useMemo, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { createGraphDataStore, type GraphDataStore } from "@gqlens/core";
 import { GQLensProvider, useMutation } from "@gqlens/react";
 
 import { api, defineInvalidation, useQuery } from "../gqlens/accessor";
 import { graphqlFetcher } from "./graphql-fetcher";
+import {
+  createIndexedDBGraphDataRecords,
+  type CacheRestoreSummary,
+  type IndexedDBGraphDataRecords,
+} from "./idb-records";
 import "./styles.css";
 
 const demoPostId = "p1";
+const queryTtlMs = 60_000;
 const postCommentsInvalidation = defineInvalidation((q) => q.post({ id: demoPostId }).comments.ids);
 
-function Dashboard() {
+interface CacheRuntime {
+  readonly store: GraphDataStore;
+  readonly restored: CacheRestoreSummary;
+  clear(): Promise<void>;
+}
+
+function Dashboard(props: { readonly cache: CacheRuntime }) {
   const q = useQuery();
   const addComment = useMutation(api.comment.add);
   const toggleViewer = useMutation(api.userOnline.toggle);
   const [commentBody, setCommentBody] = useState("Verified from the GQLens demo UI.");
   const [mutationState, setMutationState] = useState("ready");
+  const [cacheState, setCacheState] = useState(() => cacheStateLabel(props.cache.restored));
 
   const userIds = q.users.ids ?? [];
   const postIds = q.posts.ids ?? [];
@@ -25,18 +39,32 @@ function Dashboard() {
 
   async function handleAddComment(): Promise<void> {
     setMutationState("adding comment");
-    await addComment({ postId: demoPostId, body: commentBody, invalidates });
+    await addComment({ postId: demoPostId, body: commentBody }, { invalidates });
     setCommentBody("");
     setMutationState("comment added");
   }
 
   async function handleToggleViewer(): Promise<void> {
     setMutationState("toggling viewer");
-    await toggleViewer({
-      id: "u1",
-      invalidates: [{ type: "User", id: "u1", keys: ["online"] }],
-    });
+    await toggleViewer(
+      { id: "u1" },
+      {
+        invalidates: [
+          {
+            kind: "entity",
+            ref: { type: "User", id: "u1" },
+            paths: [[{ field: "online" }]],
+          },
+        ],
+      },
+    );
     setMutationState("viewer toggled");
+  }
+
+  async function handleClearCache(): Promise<void> {
+    props.cache.store.clear();
+    await props.cache.clear();
+    setCacheState("cleared");
   }
 
   return (
@@ -99,6 +127,27 @@ function Dashboard() {
           </dl>
         </Panel>
 
+        <Panel title="Cache" meta="GraphDataRecords + IndexedDB">
+          <dl className="facts">
+            <div>
+              <dt>Restored fields</dt>
+              <dd>{props.cache.restored.fields}</dd>
+            </div>
+            <div>
+              <dt>Restored slots</dt>
+              <dd>{props.cache.restored.slots}</dd>
+            </div>
+          </dl>
+          <div className="button-row">
+            <button type="button" onClick={() => void handleClearCache()}>
+              Clear cache
+            </button>
+          </div>
+          <p className="muted" data-testid="cache-state">
+            {cacheState}
+          </p>
+        </Panel>
+
         <Panel title="Generated mutations" meta="api.comment.add / api.userOnline.toggle">
           <label className="field">
             <span>Comment body</span>
@@ -137,10 +186,24 @@ function Panel(props: {
   );
 }
 
-function App() {
+function cacheStateLabel(restored: CacheRestoreSummary): string {
+  const total = restored.fields + restored.slots;
+  return total === 0 ? "empty" : `restored ${total}`;
+}
+
+function App(props: { readonly cache: CacheRuntime }) {
+  const config = useMemo(
+    () => ({
+      fetcher: graphqlFetcher,
+      store: props.cache.store,
+      query: { policy: "cache-and-network" as const, ttl: queryTtlMs },
+    }),
+    [props.cache.store],
+  );
+
   return (
-    <GQLensProvider config={{ fetcher: graphqlFetcher }}>
-      <Dashboard />
+    <GQLensProvider config={config}>
+      <Dashboard cache={props.cache} />
     </GQLensProvider>
   );
 }
@@ -148,9 +211,28 @@ function App() {
 const root = document.getElementById("root");
 
 if (root) {
+  void bootstrap(root);
+}
+
+async function bootstrap(root: HTMLElement): Promise<void> {
+  const persisted = await createIndexedDBGraphDataRecords();
+  const store = createGraphDataStore({ records: persisted.records });
+  const cache = createCacheRuntime(store, persisted);
+
   createRoot(root).render(
     <StrictMode>
-      <App />
+      <App cache={cache} />
     </StrictMode>,
   );
+}
+
+function createCacheRuntime(
+  store: GraphDataStore,
+  persisted: IndexedDBGraphDataRecords,
+): CacheRuntime {
+  return {
+    store,
+    restored: persisted.restored,
+    clear: persisted.clearStorage,
+  };
 }

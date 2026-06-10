@@ -1,4 +1,8 @@
-import { commentsInvalidation, userCardSelection } from "../web/client/generated-usage";
+import {
+  commentsInvalidation,
+  createBrowserPersistedRecords,
+  userCardSelection,
+} from "../web/client/generated-usage";
 import { api } from "../web/gqlens/accessor";
 
 assertEqual(api.comment.add.operationName, "addComment", "comment mutation name");
@@ -19,6 +23,10 @@ assertDeepEqual(api.userOnline.toggle.variables({ id: "u1" }), { id: "u1" }, "to
 assertEqual(userCardSelection.variables.includes("userId"), true, "selection tracks variables");
 assertEqual(userCardSelection.paths.length, 2, "selection tracks accessed fields");
 assertEqual(commentsInvalidation.kind, "selection", "invalidation tracks accessor selection");
+
+const persistedRecords = await createBrowserPersistedRecords();
+assertEqual(persistedRecords.restored.fields, 0, "memory records fallback has no fields");
+assertEqual(persistedRecords.restored.slots, 0, "memory records fallback has no slots");
 
 console.log("frontend contract test passed");
 

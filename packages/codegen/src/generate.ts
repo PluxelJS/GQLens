@@ -22,7 +22,7 @@ export type GeneratedFiles = Readonly<Record<string, string>>;
 
 export async function generateFiles(options: GenerateFilesOptions): Promise<GeneratedFiles> {
   const schemaSDL = schemaToSDL(options.schema);
-  const schema = buildASTSchema(parse(schemaSDL));
+  const schema = parseSchemaSDL(schemaSDL);
   const adapter = resolveAdapter(options.framework, options.adapter);
   validateEntitySchemaContract(schema);
 
@@ -32,6 +32,19 @@ export async function generateFiles(options: GenerateFilesOptions): Promise<Gene
   files["accessor.ts"] = generateAccessor(schema, adapter);
 
   return files;
+}
+
+function parseSchemaSDL(schemaSDL: string): GraphQLSchema {
+  try {
+    return buildASTSchema(parse(schemaSDL));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GQLensCodegenError({
+      code: "INVALID_SCHEMA_INPUT",
+      message: "Invalid GraphQL schema SDL.",
+      details: { cause: message },
+    });
+  }
 }
 
 export function schemaToSDL(schema: SchemaInput): string {

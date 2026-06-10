@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, createServer, type ViteDevServer } from "vite";
 import { afterEach, expect, test } from "vitest";
-import { gqlens } from "../src/index";
+import { gqlens, type GQLensViteLogger } from "../src/index";
 
 const fixtureRoots = new Set<string>();
 const entryHelper = JSON.stringify(fileURLToPath(new URL("../src/entry.ts", import.meta.url)));
@@ -60,6 +60,35 @@ test("refreshes generated files and middleware through vite dev hmr", async () =
   }
 });
 
+test("skips codegen when SDL only changes formatting", async () => {
+  const root = await createFixture();
+  const events: string[] = [];
+  const server = await createServer({
+    root,
+    appType: "custom",
+    configFile: false,
+    logLevel: "silent",
+    plugins: [
+      gqlens({
+        entry: "/src/graphql-entry.ts",
+        output: "web/gqlens",
+        logger: testLogger(events),
+      }),
+    ],
+  });
+
+  try {
+    await server.listen(0);
+    await writeFile(join(root, "src/schema.ts"), formattedSchemaSource(""), "utf8");
+    await waitUntil(async () =>
+      events.some((event) => event.includes("Skipped GQLens codegen because SDL is unchanged.")),
+    );
+    expect(events).toContain("debug:Skipped GQLens codegen because SDL is unchanged.");
+  } finally {
+    await closeServer(server);
+  }
+});
+
 async function createFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "gqlens-vite-"));
   fixtureRoots.add(root);
@@ -105,6 +134,24 @@ ${extraViewerFields}}\`;
 `;
 }
 
+function formattedSchemaSource(extraViewerFields: string): string {
+  return `export function schema() {
+  return \`
+type   Query   {
+
+  viewer: Viewer!
+}
+
+type Viewer {
+  id: ID!
+
+  name: String!
+${extraViewerFields}
+}\`;
+}
+`;
+}
+
 function handlerSource(name: string): string {
   return `export function createHandler() {
   return async (_req, res) => {
@@ -131,6 +178,20 @@ function localServerUrl(server: ViteDevServer): string {
     throw new Error("Vite dev server did not expose a local URL.");
   }
   return baseUrl;
+}
+
+function testLogger(events: string[]): GQLensViteLogger {
+  return {
+    debug(message) {
+      events.push(`debug:${message}`);
+    },
+    info(message) {
+      events.push(`info:${message}`);
+    },
+    error(error) {
+      events.push(`error:${error.message}`);
+    },
+  };
 }
 
 async function waitUntil(predicate: () => Promise<boolean>): Promise<void> {

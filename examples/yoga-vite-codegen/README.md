@@ -115,6 +115,27 @@ Resolver/context-only changes refresh the Yoga handler, but SDL stays identical,
 - `api.comment.add`
 - `api.userOnline.toggle`
 
+前端入口显式创建 `GraphDataStore`，并把浏览器 IndexedDB 里恢复出的 `GraphDataRecords` 注入进去：
+
+```ts
+const persisted = await createIndexedDBGraphDataRecords();
+const store = createGraphDataStore({ records: persisted.records });
+
+createRoot(root).render(
+  <GQLensProvider
+    config={{
+      fetcher: graphqlFetcher,
+      store,
+      query: { policy: "cache-and-network", ttl: 60_000 },
+    }}
+  >
+    <Dashboard />
+  </GQLensProvider>,
+);
+```
+
+`GraphDataRecords` 的 `get()` 是同步契约，所以 example 不把 IndexedDB 直接暴露给 store。启动时先把 IDB snapshot 读进内存 `Map`，之后 `set()` / `delete()` / `clear()` 再异步镜像回 IDB。恢复出的记录会被标成 stale：页面可以先显示上次访问留下的缓存，active selection 随后用当前 GraphQL 响应校准。
+
 `web/client/generated-usage.ts` 是手写的类型样例，参与 `tsc --noEmit`，用于证明 generated accessor、selector、invalidation 和 mutation descriptor 可以被前端正常消费。
 
 如果需要模拟真实前后端分离，也可以开两个终端运行 `npm run dev:server` 和 `npm run dev:client`。此时前端请求仍然使用相对路径 `/graphql`，由 Vite proxy 转发到独立 Yoga server。
@@ -158,7 +179,6 @@ GQLENS_EXAMPLE_LOG_LEVEL=debug npm run dev
 
 - `web/gqlens/types.ts`
 - `web/gqlens/accessor.ts`
-- `web/gqlens/normalizer.ts`
 - `web/gqlens/invalidation.ts`
 
 这些文件来自 schema，不应该手写。

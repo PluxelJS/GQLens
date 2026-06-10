@@ -2,8 +2,10 @@ import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { generateFiles as generateFilesFunction, GenerateFilesOptions } from "@gqlens/codegen";
+import { buildASTSchema, parse, printSchema } from "graphql";
 import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from "vite";
 import type { GQLensViteEntry, NodeHandler } from "./entry";
+import { GQLensViteError } from "./error";
 import { writeGeneratedFiles } from "./write-generated-files";
 
 type GenerateFiles = typeof generateFilesFunction;
@@ -74,23 +76,28 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
 
   function devServer(): ViteDevServer {
     if (!server) {
-      throw new Error("[gqlens/vite] Vite dev server is not ready.");
+      throw new GQLensViteError({
+        code: "DEV_SERVER_NOT_READY",
+        message: "[gqlens/vite] Vite dev server is not ready.",
+      });
     }
     return server;
   }
 
   async function loadDevSchemaSDL(): Promise<string> {
     const entry = await loadDevEntry();
-    return entry.schema();
+    return normalizeSchemaSDL(await entry.schema(), entryId);
   }
 
   async function loadDevHandler(): Promise<NodeHandler> {
     const viteServer = devServer();
     const entry = await loadDevEntry();
     if (!entry.handler) {
-      throw new Error(
-        "[gqlens/vite] GraphQL middleware requires defineGQLensEntry({ handler }). Set middleware: false when using an external GraphQL server.",
-      );
+      throw new GQLensViteError({
+        code: "MISSING_HANDLER",
+        message:
+          "[gqlens/vite] GraphQL middleware requires defineGQLensEntry({ handler }). Set middleware: false when using an external GraphQL server.",
+      });
     }
     handler ??= Promise.resolve(entry.handler(viteServer));
     return handler;
@@ -157,10 +164,11 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
   async function generateBuildFiles(): Promise<void> {
     const startedAt = performance.now();
     const entry = await loadBuildEntry();
+    const schema = normalizeSchemaSDL(await entry.schema(), entryPath());
     const files = await (
       await loadGenerateFiles()
     )({
-      schema: await entry.schema(),
+      schema,
       framework: options.framework,
       adapter: options.adapter,
     });
@@ -261,12 +269,26 @@ const noopLogger: GQLensViteLogger = {
 
 function readGQLensEntry(value: unknown, source: string): GQLensViteEntry {
   if (!isGQLensEntry(value)) {
-    throw new Error(
-      `[gqlens/vite] ${source} must default-export defineGQLensEntry({ schema, ... }).`,
-    );
+    throw new GQLensViteError({
+      code: "INVALID_ENTRY",
+      message: `[gqlens/vite] ${source} must default-export defineGQLensEntry({ schema, ... }).`,
+    });
   }
 
   return value;
+}
+
+function normalizeSchemaSDL(sdl: string, source: string): string {
+  try {
+    return printSchema(buildASTSchema(parse(sdl)));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GQLensViteError({
+      code: "INVALID_SCHEMA",
+      message: `[gqlens/vite] ${source} returned invalid GraphQL SDL.`,
+      details: { cause: message },
+    });
+  }
 }
 
 function isGQLensEntry(value: unknown): value is GQLensViteEntry {

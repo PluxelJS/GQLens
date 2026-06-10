@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { buildSchema } from "graphql";
-import { generateFiles } from "@gqlens/codegen";
+import { generateFiles, type GQLensCodegenError } from "@gqlens/codegen";
 
 const fixturesRoot = new URL("./fixtures/", import.meta.url);
 const basicFixture = fixtureUrl("basic");
@@ -43,6 +43,13 @@ describe("@gqlens/codegen", () => {
       "invalidation.ts": readFixture("invalidation.ts"),
       "accessor.ts": readFixture("accessor.ts"),
     });
+  });
+
+  test("wraps invalid SDL as a stable codegen error", async () => {
+    await expect(generateFiles({ schema: "type Query {" })).rejects.toMatchObject({
+      name: "GQLensCodegenError",
+      code: "INVALID_SCHEMA_INPUT",
+    } satisfies Partial<GQLensCodegenError>);
   });
 
   test("uses GraphQL Code Generator-compatible args type names", async () => {
