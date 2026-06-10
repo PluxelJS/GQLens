@@ -6,9 +6,8 @@ import {
   defineInvalidation,
   defineSelection,
   type AccessorContext,
-  type SchemaMeta,
 } from "@gqlens/core/codegen";
-import { cacheField, cacheSlot } from "./cache-helpers";
+import { cacheField, cacheSlot, schemaContract } from "./cache-helpers";
 
 interface QueryNode {
   readonly __typename: string | undefined;
@@ -57,99 +56,65 @@ interface DogNode {
   readonly barks: boolean | undefined;
 }
 
-const schemaMeta: SchemaMeta = {
-  query: {
-    type: "Query",
-    identityKeys: ["id", "__typename"],
-    fields: {
-      __typename: { name: "__typename", kind: "scalar" },
-      viewer: { name: "viewer", kind: "entity", typeName: "User" },
-      user: { name: "user", kind: "entity", typeName: "User", hasArgs: true },
-      pet: { name: "pet", kind: "entity", typeName: "Pet", hasArgs: true, isAbstract: true },
-      search: {
-        name: "search",
-        kind: "list",
-        typeName: "SearchResult",
-        hasArgs: true,
-        isAbstract: true,
-      },
+const gqlensSchema = schemaContract({
+  roots: {
+    viewer: { returnsEntity: true, graphQLType: "User" },
+    user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } },
+    pet: { returnsEntity: true, graphQLType: "Pet", isAbstract: true, args: { id: "ID!" } },
+    search: {
+      returnsEntity: true,
+      cardinality: "list",
+      graphQLType: "SearchResult",
+      isAbstract: true,
+      args: { text: "String!" },
     },
   },
-  entities: {
+  types: {
     User: {
-      type: "User",
-      identityKeys: ["id", "__typename"],
-      fields: {
-        __typename: { name: "__typename", kind: "scalar" },
-        name: { name: "name", kind: "scalar" },
-        status: {
-          name: "status",
-          kind: "value",
-          typeName: "UserStatus",
-          targetObjectKind: "value",
-        },
-        posts: { name: "posts", kind: "list", typeName: "Post" },
+      name: { returnsEntity: false },
+      status: {
+        returnsEntity: false,
+        graphQLType: "UserStatus",
+        objectKind: "value",
       },
+      posts: { returnsEntity: true, cardinality: "list", graphQLType: "Post" },
     },
     UserStatus: {
-      type: "UserStatus",
-      kind: "value",
-      identityKeys: [],
-      fields: {
-        online: { name: "online", kind: "scalar" },
-        source: {
-          name: "source",
-          kind: "value",
-          typeName: "StatusSource",
-          targetObjectKind: "value",
-        },
+      online: { returnsEntity: false },
+      source: {
+        returnsEntity: false,
+        graphQLType: "StatusSource",
+        objectKind: "value",
       },
     },
     StatusSource: {
-      type: "StatusSource",
-      kind: "value",
-      identityKeys: [],
-      fields: {
-        kind: { name: "kind", kind: "scalar" },
-      },
+      kind: { returnsEntity: false },
     },
     Pet: {
-      type: "Pet",
-      identityKeys: ["id", "__typename"],
-      isAbstract: true,
-      possibleTypes: ["Cat", "Dog"],
-      fields: {
-        __typename: { name: "__typename", kind: "scalar" },
-        name: { name: "name", kind: "scalar" },
-      },
+      __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] },
+      name: { returnsEntity: false },
     },
     Cat: {
-      type: "Cat",
-      identityKeys: ["id", "__typename"],
-      fields: {
-        __typename: { name: "__typename", kind: "scalar" },
-        name: { name: "name", kind: "scalar" },
-        meows: { name: "meows", kind: "scalar" },
-      },
+      name: { returnsEntity: false },
+      meows: { returnsEntity: false },
     },
     Dog: {
-      type: "Dog",
-      identityKeys: ["id", "__typename"],
-      fields: {
-        __typename: { name: "__typename", kind: "scalar" },
-        name: { name: "name", kind: "scalar" },
-        barks: { name: "barks", kind: "scalar" },
-      },
+      name: { returnsEntity: false },
+      barks: { returnsEntity: false },
     },
   },
-};
+});
 
 describe("createAccessorNode", () => {
   test("declares demand and reads entity fields through root slots", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    cache.writeGraphQLResult({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.viewer.name).toBe("Alice");
     expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "name" }]]);
@@ -158,8 +123,12 @@ describe("createAccessorNode", () => {
   test("reads __typename through the same scalar accessor path", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.user({ id: "1" })["__typename"]).toBe("User");
     expect(demands).toStrictEqual([
@@ -171,7 +140,11 @@ describe("createAccessorNode", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cacheField(cache, cache.entity("User", "2"), "name").sig("Bob");
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.user({ id: "2" }).name).toBe("Bob");
     expect(demands).toStrictEqual([[{ field: "user", args: { id: "2" } }, { field: "name" }]]);
@@ -182,7 +155,11 @@ describe("createAccessorNode", () => {
     const demands: readonly SelectionStep[][] = [];
     cacheField(cache, cache.entity("User", "2"), "name").sig("stale Bob");
     cacheSlot(cache, 'Query.user({"id":"2"})').sig(null);
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.user({ id: "2" }).name).toBeUndefined();
     expect(demands).toStrictEqual([[{ field: "user", args: { id: "2" } }, { field: "name" }]]);
@@ -191,7 +168,7 @@ describe("createAccessorNode", () => {
   test("reads relation list ids from the owning entity field", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({
+    cache.writeGraphQLResult({
       viewer: {
         __typename: "User",
         id: "1",
@@ -202,7 +179,11 @@ describe("createAccessorNode", () => {
         ],
       },
     });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.viewer.posts.ids).toStrictEqual(["10", "11"]);
     expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "posts" }, { field: "ids" }]]);
@@ -212,7 +193,11 @@ describe("createAccessorNode", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cacheField(cache, cache.entity("User", "1"), "status.source.kind").sig("hmr");
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.user({ id: "1" }).status.source.kind).toBe("hmr");
     expect(demands).toStrictEqual([
@@ -228,8 +213,12 @@ describe("createAccessorNode", () => {
   test("reuses relation and list accessor objects without caching scalar reads", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    cache.writeGraphQLResult({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(Object.is(query.viewer, query.viewer)).toBe(true);
     expect(Object.is(query.user({ id: "1" }), query.user({ id: "1" }))).toBe(true);
@@ -249,7 +238,7 @@ describe("createAccessorNode", () => {
   test("keeps accessor fields non-enumerable to avoid accidental reads", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({
+    cache.writeGraphQLResult({
       viewer: {
         __typename: "User",
         id: "1",
@@ -257,7 +246,11 @@ describe("createAccessorNode", () => {
         posts: [{ __typename: "Post", id: "10" }],
       },
     });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(Object.keys(query)).toStrictEqual([]);
     expect(Object.keys(query.viewer)).toStrictEqual([]);
@@ -276,8 +269,12 @@ describe("createAccessorNode", () => {
   test("returns undefined for missing relation list ids", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    cache.writeGraphQLResult({ viewer: { __typename: "User", id: "1", name: "Alice" } });
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.viewer.posts.ids).toBeUndefined();
     expect(demands).toStrictEqual([[{ field: "viewer" }, { field: "posts" }, { field: "ids" }]]);
@@ -286,7 +283,7 @@ describe("createAccessorNode", () => {
   test("reads abstract list refs and declares refs demand", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({
+    cache.writeGraphQLResult({
       search: [
         { __typename: "User", id: "1", name: "Alice" },
         { __typename: "Cat", id: "2", name: "Miso", meows: true },
@@ -296,7 +293,11 @@ describe("createAccessorNode", () => {
       { type: "User", id: "1" },
       { type: "Cat", id: "2" },
     ]);
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.search({ text: "mi" }).refs).toStrictEqual([
       { type: "User", id: "1" },
@@ -308,13 +309,17 @@ describe("createAccessorNode", () => {
   test("reads inline fragment fields only when the cached type matches", () => {
     const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
-    cache.normalize({
+    cache.writeGraphQLResult({
       pet: { __typename: "Cat", id: "1", name: "Miso", meows: true },
       dog: { __typename: "Dog", id: "2", name: "Rex", barks: true },
     });
     cacheSlot(cache, 'Query.pet({"id":"1"})').sig({ type: "Cat", id: "1" });
     cacheSlot(cache, 'Query.pet({"id":"2"})').sig({ type: "Dog", id: "2" });
-    const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
+    const query = createAccessorNode<QueryNode>(
+      ctx(cache, demands),
+      gqlensSchema,
+      gqlensSchema.query,
+    );
 
     expect(query.pet({ id: "1" }).$on.Cat.meows).toBe(true);
     expect(query.pet({ id: "2" }).$on.Cat.meows).toBeUndefined();
@@ -334,8 +339,8 @@ describe("createAccessorNode", () => {
 
   test("defineSelection collects paths and named variable placeholders", () => {
     const selection = defineSelection<QueryNode>(
-      schemaMeta,
-      schemaMeta.query,
+      gqlensSchema,
+      gqlensSchema.query,
       (query, variable) => {
         void query.user({ id: variable("id") as unknown as string }).name;
         void query.search({ text: variable("text") as unknown as string }).refs;
@@ -360,8 +365,8 @@ describe("createAccessorNode", () => {
 
   test("bindSelection binds prepared variables into plain selection paths", () => {
     const selection = defineSelection<QueryNode>(
-      schemaMeta,
-      schemaMeta.query,
+      gqlensSchema,
+      gqlensSchema.query,
       (query, variable) => {
         void query.user({ id: variable("id") as unknown as string }).name;
       },
@@ -377,8 +382,8 @@ describe("createAccessorNode", () => {
 
   test("bindSelection fails fast when a prepared variable is missing", () => {
     const selection = defineSelection<QueryNode>(
-      schemaMeta,
-      schemaMeta.query,
+      gqlensSchema,
+      gqlensSchema.query,
       (query, variable) => {
         void query.user({ id: variable("id") as unknown as string }).name;
       },
@@ -391,8 +396,8 @@ describe("createAccessorNode", () => {
 
   test("bindSelection only accepts own variable bindings", () => {
     const selection = defineSelection<QueryNode>(
-      schemaMeta,
-      schemaMeta.query,
+      gqlensSchema,
+      gqlensSchema.query,
       (query, variable) => {
         void query.user({ id: variable("id") as unknown as string }).name;
       },
@@ -441,8 +446,8 @@ describe("createAccessorNode", () => {
 
   test("defineInvalidation can capture relation accessors without reading a field", () => {
     const path = defineInvalidation<QueryNode>(
-      schemaMeta,
-      schemaMeta.query,
+      gqlensSchema,
+      gqlensSchema.query,
       (query) => query.user({ id: "1" }).posts,
     );
 

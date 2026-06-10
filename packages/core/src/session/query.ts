@@ -4,7 +4,7 @@ import { writeOperationResult } from "../cache/materialize";
 import { expiresAt, isExpiresFresh } from "../cache/store";
 import { applyInvalidations } from "../invalidation";
 import { createSignal } from "../signal";
-import type { GraphDataStore, QuerySessionConfig } from "../types";
+import type { GraphDataRuntimeStore, GraphDataStore, QuerySessionConfig } from "../types";
 import type { Fetcher } from "../transport";
 import { createPlanCache, operationKey, planCached } from "./operation-cache";
 import type { QuerySession } from "./types";
@@ -19,9 +19,10 @@ export interface QuerySessionOptions extends QuerySessionConfig {
 
 export function createQuerySession(options: QuerySessionOptions): QuerySession {
   const { store, fetcher } = options;
+  const runtimeStore = store as GraphDataRuntimeStore;
   const policy = options.policy ?? "cache-and-network";
   const ttl = options.ttl ?? 0;
-  const metadata = options.metadata;
+  const schema = options.schema;
   const collector = createSelectionCollector();
   const loading = createSignal(false);
   const error = createSignal<Error | null>(null);
@@ -46,14 +47,14 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
         return;
       }
 
-      const fresh = paths.every((path) => isSelectionFresh(store, path, metadata));
+      const fresh = paths.every((path) => isSelectionFresh(runtimeStore, path, schema));
       const forced = forceNext;
       forceNext = false;
       if (!forced && policy === "cache-first" && fresh) {
         return;
       }
 
-      const operation = planCached(selectionPlanCache, paths, "query", metadata);
+      const operation = planCached(selectionPlanCache, paths, "query", schema);
       const key = operationKey(operation);
       const completedFresh = !forced && isCompletedFresh(completed, key);
       if (policy === "cache-first" && completedFresh) {
@@ -79,8 +80,10 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
           if (request !== latestRequest) {
             return undefined;
           }
-          writeOperationResult(store, data, operation.selections, ttl, metadata);
-          const freshAfterWrite = paths.every((path) => isSelectionFresh(store, path, metadata));
+          writeOperationResult(runtimeStore, data, operation.selections, ttl, schema);
+          const freshAfterWrite = paths.every((path) =>
+            isSelectionFresh(runtimeStore, path, schema),
+          );
           // Cache-first only remembers false negatives; fresh paths must refetch if later marked stale.
           if (policy !== "cache-first" || !freshAfterWrite) {
             completed.set(key, expiresAt(ttl));
@@ -149,7 +152,7 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
     },
 
     invalidate(specs) {
-      applyInvalidations(store, specs, metadata);
+      applyInvalidations(store, specs, schema);
       completed.clear();
       schedule(true);
     },

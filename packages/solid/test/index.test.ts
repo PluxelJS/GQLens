@@ -8,7 +8,7 @@ import {
   type LiveSubscriber,
   type PreparedSelection,
 } from "@gqlens/core";
-import { cacheField, cacheSlot } from "../../core/test/cache-helpers";
+import { cacheField, cacheSlot, schemaContract } from "../../core/test/cache-helpers";
 
 const userNameSelection: PreparedSelection = {
   variables: ["id"],
@@ -135,10 +135,10 @@ describe("Solid adapter", () => {
       const state = createLiveQuery({
         store: cache,
         live: { subscriber: liveSubscriber },
-        metadata: {
+        schema: schemaContract({
           roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
           types: { User: { name: { returnsEntity: false } } },
-        },
+        }),
       });
 
       state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
@@ -236,20 +236,22 @@ describe("Solid adapter", () => {
       );
 
       let optimisticRan = false;
-      await mutate({
-        name: "Alice",
-        optimistic(c) {
-          optimisticRan = true;
-          cacheField(c, c.entity("User", "1"), "name").sig("Alice");
-        },
-        invalidates: [
-          {
-            kind: "entity",
-            ref: { type: "User", id: "1" },
-            paths: [[{ field: "name" }]],
+      await mutate(
+        { name: "Alice" },
+        {
+          optimistic(c) {
+            optimisticRan = true;
+            cacheField(c, c.entity("User", "1"), "name").sig("Alice");
           },
-        ],
-      });
+          invalidates: [
+            {
+              kind: "entity",
+              ref: { type: "User", id: "1" },
+              paths: [[{ field: "name" }]],
+            },
+          ],
+        },
+      );
 
       expect(optimisticRan).toBe(true);
     });
@@ -263,16 +265,18 @@ describe("Solid adapter", () => {
         { store: cache },
       );
 
-      await mutate({
-        name: "Alice",
-        invalidates: [
-          {
-            kind: "entity",
-            ref: { type: "User", id: "1" },
-            paths: [[{ field: "name" }]],
-          },
-        ],
-      });
+      await mutate(
+        { name: "Alice" },
+        {
+          invalidates: [
+            {
+              kind: "entity",
+              ref: { type: "User", id: "1" },
+              paths: [[{ field: "name" }]],
+            },
+          ],
+        },
+      );
 
       const field = cacheField(cache, cache.entity("User", "1"), "name");
       expect(field.sig()).toBe("Alice");
@@ -288,22 +292,25 @@ describe("Solid adapter", () => {
       refs.sig([{ type: "User", id: "1" }]);
       const mutate = createMutation(async () => ({ ok: true }), { store: cache });
 
-      await mutate({
-        invalidates: [
-          {
-            kind: "selection",
-            path: {
-              root: "Query",
-              steps: [{ field: "search", args: { text: "a" } }, { field: "refs" }],
+      await mutate(
+        {},
+        {
+          invalidates: [
+            {
+              kind: "selection",
+              path: {
+                root: "Query",
+                steps: [{ field: "search", args: { text: "a" } }, { field: "refs" }],
+              },
             },
-          },
-        ],
-      });
+          ],
+        },
+      );
 
       expect(refs.expires).toBeLessThan(Date.now());
     });
 
-    test("rolls back optimistic selector invalidations with descriptor metadata", async () => {
+    test("rolls back optimistic selector invalidations with descriptor schema", async () => {
       const cache = createGraphDataStore();
       cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
       const fetcher = vi.fn<Fetcher>(async () => {
@@ -313,31 +320,33 @@ describe("Solid adapter", () => {
         {
           operationName: "renameUser",
           query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
-          metadata: {
+          schema: schemaContract({
             roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
             types: { User: { name: { returnsEntity: false } } },
-          },
+          }),
           variables: (input: { id: string }) => ({ id: input.id }),
         },
         { store: cache, fetcher },
       );
 
       await expect(
-        mutate({
-          id: "1",
-          optimistic(c) {
-            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
-          },
-          invalidates: [
-            {
-              kind: "selection",
-              path: {
-                root: "Query",
-                steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
-              },
+        mutate(
+          { id: "1" },
+          {
+            optimistic(c) {
+              cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
             },
-          ],
-        }),
+            invalidates: [
+              {
+                kind: "selection",
+                path: {
+                  root: "Query",
+                  steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+                },
+              },
+            ],
+          },
+        ),
       ).rejects.toThrow("server rejected");
 
       expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
@@ -346,7 +355,7 @@ describe("Solid adapter", () => {
     test("rolls back optimistic writes on error", async () => {
       const cache = createGraphDataStore();
       // Pre-populate cache
-      cache.normalize({
+      cache.writeGraphQLResult({
         renameUser: { __typename: "User", id: "1", name: "original" },
       });
 
@@ -358,19 +367,21 @@ describe("Solid adapter", () => {
       );
 
       await expect(
-        mutate({
-          name: "Alice",
-          optimistic(c) {
-            cacheField(c, c.entity("User", "1"), "name").sig("bad-write");
-          },
-          invalidates: [
-            {
-              kind: "entity",
-              ref: { type: "User", id: "1" },
-              paths: [[{ field: "name" }]],
+        mutate(
+          { name: "Alice" },
+          {
+            optimistic(c) {
+              cacheField(c, c.entity("User", "1"), "name").sig("bad-write");
             },
-          ],
-        }),
+            invalidates: [
+              {
+                kind: "entity",
+                ref: { type: "User", id: "1" },
+                paths: [[{ field: "name" }]],
+              },
+            ],
+          },
+        ),
       ).rejects.toThrow("server rejected");
 
       const ref = cache.entity("User", "1");

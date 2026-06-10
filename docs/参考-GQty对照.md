@@ -49,7 +49,7 @@ GQty 的 scoped query 说明一个事实：selection 不应无限全局合并。
 GQLens 因此必须把 QuerySession 当成显式 scope，而不是把 `useQuery()` 调用次数等同于请求边界。
 
 ```
-scope = metadata + policy + ttl + transport + operation boundary
+scope = schema contract + policy + ttl + transport + operation boundary
 ```
 
 同一 scope 内的 active selection 可以合并；不同 scope 的 selection 不得混合。

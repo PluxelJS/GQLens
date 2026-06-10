@@ -73,7 +73,7 @@ export function objectEntry(key: string, value: string): string {
   return `${quote(key)}: ${value}`;
 }
 
-export function fieldMeta(key: string, parts: readonly string[]): string {
+export function fieldContractEntry(key: string, parts: readonly string[]): string {
   return `${quote(key)}: { ${parts.join(", ")} }`;
 }
 

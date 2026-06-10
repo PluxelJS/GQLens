@@ -67,7 +67,7 @@ function writeMutationOperation(
   writer.indent(() => {
     writer.writeLine(`operationName: ${quote(field.name)},`);
     writer.writeLine(`query: ${quote(mutationQuery(field))},`);
-    writer.writeLine("metadata: schemaMeta.planner,");
+    writer.writeLine("schema: gqlensSchema,");
     writeMutationVariables(writer, field, argsType);
   });
   writer.writeLine("},");

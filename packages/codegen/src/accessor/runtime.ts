@@ -24,7 +24,7 @@ export function writeQueryHook(writer: CodeBlockWriter, entrypoint: RuntimeEntry
     )
     .block(() => {
       writer.writeLine(
-        `const state = ${entrypoint.sessionHook}({ ...config, metadata: schemaMeta.planner });`,
+        `const state = ${entrypoint.sessionHook}({ ...config, schema: gqlensSchema });`,
       );
       writeAccessorCreation(writer, shape);
     });
@@ -44,7 +44,7 @@ export function writePreparedQueryHook(
     )
     .block(() => {
       writer.writeLine(
-        `const state = ${entrypoint.sessionHook}({ ...config, metadata: schemaMeta.planner });`,
+        `const state = ${entrypoint.sessionHook}({ ...config, schema: gqlensSchema });`,
       );
       writer.writeLine("for (const path of bindGQLensSelection(selection, variables)) {");
       writer.indent(() => {
@@ -66,7 +66,7 @@ export function writeSelectorBuilders(writer: CodeBlockWriter, type: GraphQLObje
     )
     .block(() => {
       writer.writeLine(
-        `return defineGQLensSelection<${nodeName}>(schemaMeta, schemaMeta.query, callback);`,
+        `return defineGQLensSelection<${nodeName}>(gqlensSchema, gqlensSchema.query, callback);`,
       );
     });
   writer.blankLine();
@@ -77,7 +77,7 @@ export function writeSelectorBuilders(writer: CodeBlockWriter, type: GraphQLObje
     )
     .block(() => {
       writer.writeLine(
-        `return defineGQLensInvalidation<${nodeName}>(schemaMeta, schemaMeta.query, callback);`,
+        `return defineGQLensInvalidation<${nodeName}>(gqlensSchema, gqlensSchema.query, callback);`,
       );
     });
   writer.blankLine();
@@ -102,7 +102,7 @@ function writeAccessorCreation(writer: CodeBlockWriter, shape: RuntimeAccessorSh
   });
   writer.writeLine("};");
   writer.writeLine(
-    `const accessor = createAccessorNode<${shape.nodeName}>(ctx, schemaMeta, schemaMeta.query) as ${shape.resultType};`,
+    `const accessor = createAccessorNode<${shape.nodeName}>(ctx, gqlensSchema, gqlensSchema.query) as ${shape.resultType};`,
   );
   writer.writeLine("Object.defineProperties(accessor, {");
   writer.indent(() => {

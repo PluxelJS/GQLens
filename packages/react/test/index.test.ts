@@ -16,7 +16,7 @@ import {
   type LiveSubscriber,
   type PreparedSelection,
 } from "@gqlens/core";
-import { cacheField, cacheSlot } from "../../core/test/cache-helpers";
+import { cacheField, cacheSlot, schemaContract } from "../../core/test/cache-helpers";
 
 const userNameSelection: PreparedSelection = {
   variables: ["id"],
@@ -120,16 +120,16 @@ describe("React adapter", () => {
         .mockResolvedValueOnce({
           user: { __typename: "User", id: "2", name: "Bob" },
         });
-      const metadata = {
+      const schema = schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      } as const;
+      });
       const { rerender } = renderHook(
         ({ id }: { readonly id: string }) => {
           const state = usePreparedQuery(
             userNameSelection,
             { id },
-            { policy: "network-only", metadata },
+            { policy: "network-only", schema },
           );
           return state.loading;
         },
@@ -173,10 +173,10 @@ describe("React adapter", () => {
       const { result } = renderHook(
         () => {
           const state = useLiveQuery({
-            metadata: {
+            schema: schemaContract({
               roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
               types: { User: { name: { returnsEntity: false } } },
-            },
+            }),
           });
           state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
           return state;
@@ -305,9 +305,9 @@ describe("React adapter", () => {
 
     test("schedules again when data reveals a dependent selection", async () => {
       const cache = createGraphDataStore();
-      const metadata = {
+      const schema = schemaContract({
         roots: {
-          users: { returnsEntity: true, returnsList: true, graphQLType: "User" },
+          users: { returnsEntity: true, cardinality: "list", graphQLType: "User" },
           user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } },
         },
         types: {
@@ -315,7 +315,7 @@ describe("React adapter", () => {
             name: { returnsEntity: false },
           },
         },
-      } as const;
+      });
       const fetcher = vi
         .fn<Fetcher>()
         .mockResolvedValueOnce({
@@ -328,7 +328,7 @@ describe("React adapter", () => {
 
       const { result } = renderHook(
         () => {
-          const state = useQuery({ policy: "cache-first", metadata });
+          const state = useQuery({ policy: "cache-first", schema });
           state.demand("Query", [{ field: "users" }, { field: "ids" }]);
           demandFirstUserName(state);
           return state.loading;
@@ -397,17 +397,18 @@ describe("React adapter", () => {
         { wrapper: wrapper({ fetcher }) },
       );
 
-      await result.current.rename({
-        id: "1",
-        name: "Alice",
-        invalidates: [
-          {
-            kind: "entity",
-            ref: { type: "User", id: "1" },
-            paths: [[{ field: "name" }]],
-          },
-        ],
-      });
+      await result.current.rename(
+        { id: "1", name: "Alice" },
+        {
+          invalidates: [
+            {
+              kind: "entity",
+              ref: { type: "User", id: "1" },
+              paths: [[{ field: "name" }]],
+            },
+          ],
+        },
+      );
 
       expect(cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig()).toBe(
         "Alice",
@@ -436,10 +437,10 @@ describe("React adapter", () => {
         () => {
           const state = useQuery({
             policy: "cache-and-network",
-            metadata: {
+            schema: schemaContract({
               roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
               types: { User: { name: { returnsEntity: false } } },
-            },
+            }),
           });
           state.demand("Query", [{ field: "user", args: { id: "1" } }, { field: "name" }]);
           const rename = useMutation({
@@ -458,16 +459,18 @@ describe("React adapter", () => {
         ).toBe("Alice");
       });
 
-      await result.current.rename({
-        id: "1",
-        invalidates: [
-          {
-            kind: "entity",
-            ref: { type: "User", id: "1" },
-            paths: [[{ field: "name" }]],
-          },
-        ],
-      });
+      await result.current.rename(
+        { id: "1" },
+        {
+          invalidates: [
+            {
+              kind: "entity",
+              ref: { type: "User", id: "1" },
+              paths: [[{ field: "name" }]],
+            },
+          ],
+        },
+      );
 
       await waitFor(() => {
         expect(
@@ -496,10 +499,10 @@ describe("React adapter", () => {
         () => {
           const state = useQuery({
             policy: "cache-and-network",
-            metadata: {
+            schema: schemaContract({
               roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
               types: { User: { name: { returnsEntity: false } } },
-            },
+            }),
           });
           state.demand("Query", [{ field: "user", args: { id: "1" } }, { field: "name" }]);
           const rename = useMutation({
@@ -518,54 +521,9 @@ describe("React adapter", () => {
         ).toBe("Alice");
       });
 
-      await result.current.rename({
-        id: "1",
-        invalidates: [
-          {
-            kind: "selection",
-            path: {
-              root: "Query",
-              steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
-            },
-          },
-        ],
-      });
-
-      await waitFor(() => {
-        expect(
-          cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig(),
-        ).toBe("Fresh Alice");
-      });
-      expect(fetcher).toHaveBeenCalledTimes(3);
-    });
-
-    test("rolls back optimistic selector invalidations with descriptor metadata", async () => {
-      const cache = createGraphDataStore();
-      cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
-      const fetcher = vi.fn<Fetcher>(async () => {
-        throw new Error("server rejected");
-      });
-      const metadata = {
-        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
-        types: { User: { name: { returnsEntity: false } } },
-      } as const;
-      const { result } = renderHook(
-        () =>
-          useMutation({
-            operationName: "renameUser",
-            query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
-            metadata,
-            variables: (input: { id: string }) => ({ id: input.id }),
-          }),
-        { wrapper: wrapper({ store: cache, fetcher }) },
-      );
-
-      await expect(
-        result.current({
-          id: "1",
-          optimistic(c) {
-            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
-          },
+      await result.current.rename(
+        { id: "1" },
+        {
           invalidates: [
             {
               kind: "selection",
@@ -575,7 +533,56 @@ describe("React adapter", () => {
               },
             },
           ],
-        }),
+        },
+      );
+
+      await waitFor(() => {
+        expect(
+          cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig(),
+        ).toBe("Fresh Alice");
+      });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    });
+
+    test("rolls back optimistic selector invalidations with descriptor schema", async () => {
+      const cache = createGraphDataStore();
+      cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
+      const fetcher = vi.fn<Fetcher>(async () => {
+        throw new Error("server rejected");
+      });
+      const schema = schemaContract({
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      });
+      const { result } = renderHook(
+        () =>
+          useMutation({
+            operationName: "renameUser",
+            query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
+            schema,
+            variables: (input: { id: string }) => ({ id: input.id }),
+          }),
+        { wrapper: wrapper({ store: cache, fetcher }) },
+      );
+
+      await expect(
+        result.current(
+          { id: "1" },
+          {
+            optimistic(c) {
+              cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
+            },
+            invalidates: [
+              {
+                kind: "selection",
+                path: {
+                  root: "Query",
+                  steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+                },
+              },
+            ],
+          },
+        ),
       ).rejects.toThrow("server rejected");
 
       expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
@@ -611,10 +618,10 @@ describe("React adapter", () => {
         () => {
           const state = useQuery({
             policy: "network-only",
-            metadata: {
+            schema: schemaContract({
               roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
               types: { User: { name: { returnsEntity: false } } },
-            },
+            }),
           });
           state.demand("Query", [{ field: "viewer" }, { field: "name" }]);
           return state;
@@ -628,10 +635,10 @@ describe("React adapter", () => {
     });
 
     test("releases unmounted local sessions from provider invalidation", async () => {
-      const metadata = {
+      const schema = schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      } as const;
+      });
       const fetcher = vi
         .fn<Fetcher>()
         .mockResolvedValueOnce({
@@ -644,7 +651,7 @@ describe("React adapter", () => {
       let rename = missingMutationChild;
 
       function QueryChild() {
-        const state = useQuery({ policy: "cache-and-network", metadata });
+        const state = useQuery({ policy: "cache-and-network", schema });
         state.demand("Query", [{ field: "user", args: { id: "1" } }, { field: "name" }]);
         return null;
       }
@@ -656,16 +663,18 @@ describe("React adapter", () => {
           variables: (input: { id: string }) => ({ id: input.id }),
         });
         rename = () =>
-          mutate({
-            id: "1",
-            invalidates: [
-              {
-                kind: "entity",
-                ref: { type: "User", id: "1" },
-                paths: [[{ field: "name" }]],
-              },
-            ],
-          });
+          mutate(
+            { id: "1" },
+            {
+              invalidates: [
+                {
+                  kind: "entity",
+                  ref: { type: "User", id: "1" },
+                  paths: [[{ field: "name" }]],
+                },
+              ],
+            },
+          );
         return null;
       }
 

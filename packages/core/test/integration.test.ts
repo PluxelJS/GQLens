@@ -19,7 +19,7 @@ describe("End-to-end: Plan → Fetch → Normalize → Read", () => {
       },
     ]);
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       user: {
         __typename: "User",
         id: "1",

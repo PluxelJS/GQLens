@@ -3,45 +3,46 @@ import { readGraphQLData, type Fetcher } from "./transport";
 import { isEntityObject } from "./guards";
 import type {
   GraphDataInvalidation,
+  GQLensSchemaContract,
   MutationOptions,
-  MutationSource,
+  MutationDefinition,
   GraphDataStore,
-  PlannerMetadata,
 } from "./types";
 
 export interface MutationRunnerConfig<TInput extends Record<string, unknown>, TData> {
   readonly store: GraphDataStore;
-  readonly mutation: MutationSource<TInput, TData>;
+  readonly definition: MutationDefinition<TInput, TData>;
   readonly fetcher: Fetcher;
-  readonly metadata?: PlannerMetadata | undefined;
-  invalidate?(invalidations: readonly GraphDataInvalidation[], metadata?: PlannerMetadata): void;
+  readonly schema?: GQLensSchemaContract | undefined;
+  invalidate?(invalidations: readonly GraphDataInvalidation[], schema?: GQLensSchemaContract): void;
 }
 
 export function createMutationRunner<TInput extends Record<string, unknown>, TData>(
   config: MutationRunnerConfig<TInput, TData>,
-): (input: TInput & MutationOptions) => Promise<TData> {
-  const mutate = mutationFunction(config.mutation, config.fetcher);
-  const metadata = config.metadata ?? mutationMetadata(config.mutation);
+): (input: TInput, options?: MutationOptions) => Promise<TData> {
+  const mutate = mutationFunction(config.definition, config.fetcher);
+  const schema = config.schema ?? mutationSchema(config.definition);
+  const rootField = mutationRootField(config.definition);
   const invalidate =
     config.invalidate ??
     ((invalidations: readonly GraphDataInvalidation[]) => {
-      applyInvalidations(config.store, invalidations, metadata);
+      applyInvalidations(config.store, invalidations, schema);
     });
 
-  return async (input): Promise<TData> => {
-    const invalidates = input.invalidates ?? [];
-    const transaction = input.optimistic
+  return async (input, options = {}): Promise<TData> => {
+    const invalidates = options.invalidates ?? [];
+    const transaction = options.optimistic
       ? config.store.transaction((store) => {
-          input.optimistic?.(store);
+          options.optimistic?.(store);
         })
       : undefined;
 
     try {
       const data = await mutate(input);
       if (invalidates.length > 0) {
-        invalidate(invalidates, metadata);
+        invalidate(invalidates, schema);
       }
-      normalizeMutationResult(config.store, data, metadata);
+      normalizeMutationResult(config.store, data, schema, rootField);
       return data;
     } catch (error) {
       transaction?.rollback();
@@ -50,60 +51,51 @@ export function createMutationRunner<TInput extends Record<string, unknown>, TDa
   };
 }
 
-function mutationMetadata<TInput extends Record<string, unknown>, TData>(
-  mutation: MutationSource<TInput, TData>,
-): PlannerMetadata | undefined {
-  return typeof mutation === "function" ? undefined : mutation.metadata;
+function mutationSchema<TInput extends Record<string, unknown>, TData>(
+  definition: MutationDefinition<TInput, TData>,
+): GQLensSchemaContract | undefined {
+  return typeof definition === "function" ? undefined : definition.schema;
+}
+
+function mutationRootField<TInput extends Record<string, unknown>, TData>(
+  definition: MutationDefinition<TInput, TData>,
+): string | undefined {
+  return typeof definition === "function" ? undefined : definition.operationName;
 }
 
 function mutationFunction<TInput extends Record<string, unknown>, TData>(
-  mutation: MutationSource<TInput, TData>,
+  definition: MutationDefinition<TInput, TData>,
   fetcher: Fetcher,
 ): (input: TInput) => Promise<TData> {
-  if (typeof mutation === "function") {
-    return mutation;
+  if (typeof definition === "function") {
+    return definition;
   }
 
   return async (input: TInput): Promise<TData> => {
     const response = await fetcher({
-      query: mutation.query,
-      variables: mutation.variables(input),
-      operationName: mutation.operationName,
+      query: definition.query,
+      variables: definition.variables(input),
+      operationName: definition.operationName,
       selections: [],
     });
     const data = readGraphQLData(response);
-    return (data[mutation.operationName] ?? data) as TData;
+    return (data[definition.operationName] ?? data) as TData;
   };
 }
 
 function normalizeMutationResult(
   store: GraphDataStore,
   data: unknown,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
+  rootField: string | undefined,
 ): void {
-  if (isEntityObject(data)) {
-    store.normalize({ mutation: data }, 0, mutationResultMetadata(data, metadata));
+  if (rootField) {
+    store.writeGraphQLResult({ [rootField]: data }, { schema });
     return;
   }
-  store.normalize((data ?? {}) as Record<string, unknown>, 0, metadata);
-}
-
-function mutationResultMetadata(
-  data: Record<string, unknown>,
-  metadata: PlannerMetadata | undefined,
-): PlannerMetadata | undefined {
-  if (!metadata || typeof data["__typename"] !== "string") {
-    return metadata;
+  if (isEntityObject(data)) {
+    store.writeGraphQLResult({ mutation: data });
+    return;
   }
-  return {
-    ...metadata,
-    roots: {
-      ...metadata.roots,
-      mutation: {
-        returnsEntity: true,
-        graphQLType: data["__typename"],
-        targetObjectKind: "entity",
-      },
-    },
-  };
+  store.writeGraphQLResult((data ?? {}) as Record<string, unknown>, { schema });
 }

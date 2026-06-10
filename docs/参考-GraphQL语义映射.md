@@ -4,27 +4,27 @@
 
 ## 映射总表
 
-| GraphQL 特性             | GQLens 映射                                                         |
-| ------------------------ | ------------------------------------------------------------------- |
-| field                    | 无参字段 getter；有参字段函数                                       |
-| arguments / input object | plain args；canonical key；prepared selection 中用 `v("name")` 占位 |
-| variables                | Planner 自动提取；用户不在 runtime accessor 上手写 `$var`           |
-| alias                    | Planner 内部生成，用户 accessor 不暴露 alias API                    |
-| object type              | 有非空 scalar `id` 是 Entity；无 `id` 是 Value Object               |
-| scalar / enum            | 读取终点；类型由 GraphQL Code Generator 映射                        |
-| custom scalar            | 作为字段值处理；序列化/反序列化属于 codegen 或 transport 边界       |
-| list                     | 普通 entity list 暴露 `ids`；abstract list 暴露 `refs`              |
-| connection               | list identity + `pageInfo`；edge/node 字段不得混成 entity array     |
-| interface / union        | 共同字段直接访问；类型分支通过 `$on.<TypeCondition>`                |
-| inline fragment          | `$on.<TypeCondition>` 或 prepared selection 内的同一 accessor path  |
-| named fragment           | `defineSelection()` 复用，不生成新的 runtime 字段语义               |
-| `__typename`             | 普通字段读取；Planner 可为 identity 自动补齐                        |
-| directive                | 默认不暴露字段级 directive API；条件需求优先用宿主控制流表达        |
-| nullability              | `null` 表示服务端 null；`undefined` 表示 missing / 分支不适用       |
-| partial error            | data 仍写 store；GraphQL errors 进入 session error 状态             |
-| subscription             | 可作为 `LiveSubscriber` 的一种实现；不等同于所有 reactive query     |
-| defer / stream           | 增量 payload 写入同一 cache；调度策略可扩展，accessor shape 不变化  |
-| schema directive         | 只影响 codegen metadata；例如 deprecated、auth hint、cache hint     |
+| GraphQL 特性             | GQLens 映射                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| field                    | 无参字段 getter；有参字段函数                                                    |
+| arguments / input object | plain args；canonical key；prepared selection 中用 `v("name")` 占位              |
+| variables                | Planner 自动提取；用户不在 runtime accessor 上手写 `$var`                        |
+| alias                    | Planner 内部生成，用户 accessor 不暴露 alias API                                 |
+| object type              | 有非空 scalar `id` 是 Entity；无 `id` 是 Value Object                            |
+| scalar / enum            | 读取终点；类型由 GraphQL Code Generator 映射                                     |
+| custom scalar            | 作为字段值处理；序列化/反序列化属于 codegen 或 transport 边界                    |
+| list                     | 普通 entity list 暴露 `ids`；abstract list 暴露 `refs`                           |
+| connection               | list identity + `pageInfo`；edge/node 字段不得混成 entity array                  |
+| interface / union        | 共同字段直接访问；类型分支通过 `$on.<TypeCondition>`                             |
+| inline fragment          | `$on.<TypeCondition>` 或 prepared selection 内的同一 accessor path               |
+| named fragment           | `defineSelection()` 复用，不生成新的 runtime 字段语义                            |
+| `__typename`             | 普通字段读取；Planner 可为 identity 自动补齐                                     |
+| directive                | 默认不暴露字段级 directive API；条件需求优先用宿主控制流表达                     |
+| nullability              | `null` 表示服务端 null；`undefined` 表示 missing / 分支不适用                    |
+| partial error            | data 仍写 store；GraphQL errors 进入 session error 状态                          |
+| subscription             | 可作为 `LiveSubscriber` 的一种实现；不等同于所有 reactive query                  |
+| defer / stream           | 增量 payload 写入同一 cache；调度策略可扩展，accessor shape 不变化               |
+| schema directive         | 只影响 generated contract 或外部策略提示；例如 deprecated、auth hint、cache hint |
 
 ## Alias
 
@@ -56,10 +56,10 @@ if (showName) {
 
 reader 的 active selection 会在下一次 render 替换，因此条件变化可以自然 diff。prepared selection 若需要条件变量，应设计成显式 selection variant 或专门的 typed condition primitive；不能把任意 directive 链接到字段 getter 后面。
 
-schema directive 只进入 codegen metadata。例如：
+schema directive 只能进入 generated contract 或外部策略提示。例如：
 
 - `@deprecated` → TSDoc / lint 诊断
-- auth / cache hint → operation metadata 或 policy hint
+- auth / cache hint → operation options 或 policy hint
 
 它们不改变字段访问形态，也不配置 entity identity。GQLens 的内建 identity contract 只认 schema object 上的非空 scalar `id` 字段。
 
@@ -149,7 +149,7 @@ initial payload → normalize → field signals
 incremental payload → normalize → same field signals
 ```
 
-因此它属于 Planner / Transport / Normalizer 的协作能力。未来可以在 prepared selection 上提供调度 metadata，但不应在字段 getter 后挂载临时 API。
+因此它属于 Planner / Transport / GraphDataStore 的协作能力。未来可以在 prepared selection 上提供调度选项，但不应在字段 getter 后挂载临时 API。
 
 ## Subscription 与 Live
 
@@ -175,6 +175,6 @@ GraphQL subscription / SSE / WebSocket / business channel
 - field-level fetch policy
 - field-level transport selection
 
-这些能力会让 accessor graph 从 schema-generated contract 退化成动态 query builder。GQLens 应把它们放在 Planner metadata、prepared selection metadata、session policy 或 transport adapter 中。
+这些能力会让 accessor graph 从 schema-generated contract 退化成动态 query builder。GQLens 应把它们放在 Planner、prepared selection、session policy 或 transport adapter 中。
 
 允许的字段链形态见 [API 语法规范](./规范-API语法.md)。

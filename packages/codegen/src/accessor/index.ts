@@ -2,7 +2,7 @@ import type { GraphQLSchema } from "graphql";
 import type { AccessorAdapter } from "../adapters";
 import { createWriter } from "./shared";
 import { writeHeader } from "./header";
-import { writeSchemaMeta } from "./metadata";
+import { writeSchemaContract } from "./schema-contract";
 import { writeMutationApi } from "./mutation";
 import { writeNodeInterfaces } from "./nodes";
 import { writePreparedQueryHook, writeQueryHook, writeSelectorBuilders } from "./runtime";
@@ -14,7 +14,7 @@ export function generateAccessor(schema: GraphQLSchema, adapter: AccessorAdapter
 
   writeHeader(writer, schema, adapter);
   writeNodeInterfaces(writer, schema);
-  writeSchemaMeta(writer, schema);
+  writeSchemaContract(writer, schema);
 
   if (queryType) {
     writeQueryHook(writer, {

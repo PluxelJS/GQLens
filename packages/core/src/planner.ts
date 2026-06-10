@@ -1,12 +1,19 @@
 import { canonicalJSON, isVariablePlaceholder, stepKey } from "./keys";
 import type {
+  GQLensFieldContract,
+  GQLensSchemaContract,
   GraphQLOperation,
   PlannedSelectionPath,
-  PlannerFieldMetadata,
-  PlannerMetadata,
   SelectionPath,
   SelectionStep,
 } from "./types";
+import {
+  fieldPossibleTypes,
+  fieldReturnsEntity,
+  fieldTypeName,
+  objectFieldContract,
+  rootFieldContract,
+} from "./schema";
 
 interface FieldNode {
   readonly step: SelectionStep;
@@ -15,7 +22,8 @@ interface FieldNode {
 
 interface RenderContext {
   readonly variables: VariableRegistry;
-  readonly metadata: PlannerMetadata | undefined;
+  readonly schema: GQLensSchemaContract | undefined;
+  readonly operationType: string;
 }
 
 interface RenderScope {
@@ -26,7 +34,7 @@ interface RenderScope {
 export function plan(
   paths: readonly SelectionPath[],
   operationType = "query",
-  metadata?: PlannerMetadata,
+  schema?: GQLensSchemaContract,
 ): GraphQLOperation {
   if (paths.length === 0) {
     return {
@@ -39,11 +47,15 @@ export function plan(
 
   const variables = createVariableRegistry();
   const tree = buildTree(paths);
-  const fields = renderNodes([...tree.values()], { variables, metadata }, { indent: 1 });
+  const fields = renderNodes(
+    [...tree.values()],
+    { variables, schema, operationType },
+    { indent: 1 },
+  );
   const selections = collectPlannedPaths(paths, tree);
   const declarations = variables
     .entries()
-    .map(([name, value]) => `$${name}: ${variableType(value, metadata)}`)
+    .map(([name, value]) => `$${name}: ${variableType(value)}`)
     .join(", ");
   const header = declarations
     ? `${operationType} GQLens(${declarations})`
@@ -95,7 +107,7 @@ function renderNode(
   context: RenderContext,
   scope: RenderScope,
 ): string {
-  const { variables, metadata } = context;
+  const { variables, schema, operationType } = context;
   const { parentType, indent } = scope;
   const pad = "  ".repeat(indent);
   if (node.step.typeCondition) {
@@ -108,11 +120,11 @@ function renderNode(
   }
 
   const prefix = alias ? `${alias}: ` : "";
-  const fieldMeta = parentType
-    ? metadata?.types?.[parentType]?.[node.step.field]
-    : metadata?.roots?.[node.step.field];
-  const args = renderArgs(node.step.args, variables, fieldMeta);
-  const childType = fieldMeta?.graphQLType;
+  const field = parentType
+    ? objectFieldContract(schema, parentType, node.step.field)
+    : rootFieldContract(schema, operationType, node.step.field);
+  const args = renderArgs(node.step.args, variables, field);
+  const childType = fieldTypeName(field);
 
   if (node.children.size === 0) {
     return `${pad}${prefix}${node.step.field}${args}`;
@@ -121,14 +133,18 @@ function renderNode(
   const identityField = [...node.children.values()].find((child) => isListIdentityStep(child.step));
   const children = [...node.children.values()].filter((child) => !isListIdentityStep(child.step));
   const childLines = renderNodes(children, context, childScope(childType, indent));
-  if (fieldMeta?.isAbstract && identityField?.step.field === "refs") {
+  if (
+    field?.result.kind === "object" &&
+    field.result.isAbstract &&
+    identityField?.step.field === "refs"
+  ) {
     childLines.push(`${"  ".repeat(indent + 1)}__typename`);
-    for (const type of fieldMeta.possibleTypes ?? []) {
+    for (const type of fieldPossibleTypes(field) ?? []) {
       childLines.push(
         `${"  ".repeat(indent + 1)}... on ${type} {\n${"  ".repeat(indent + 2)}id\n${"  ".repeat(indent + 1)}}`,
       );
     }
-  } else if (fieldMeta?.returnsEntity !== false) {
+  } else if (!schema || !field || fieldReturnsEntity(field)) {
     childLines.push(`${"  ".repeat(indent + 1)}id`);
     childLines.push(`${"  ".repeat(indent + 1)}__typename`);
   }
@@ -167,14 +183,14 @@ function aliasMap(nodes: readonly FieldNode[]): Map<FieldNode, string> {
 function renderArgs(
   args: Record<string, unknown> | undefined,
   variables: VariableRegistry,
-  fieldMeta: PlannerFieldMetadata | undefined,
+  field: GQLensFieldContract | undefined,
 ): string {
   if (!args || Object.keys(args).length === 0) {
     return "";
   }
   const rendered = Object.entries(args)
     .toSorted(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}: $${variables.name(value, fieldMeta?.args?.[key])}`);
+    .map(([key, value]) => `${key}: $${variables.name(value, field?.args?.[key])}`);
   return `(${rendered.join(", ")})`;
 }
 
@@ -227,8 +243,7 @@ function createVariableRegistry(): VariableRegistry {
   };
 }
 
-function variableType(entry: VariableEntry, metadata: PlannerMetadata | undefined): string {
-  void metadata;
+function variableType(entry: VariableEntry): string {
   if (entry.type) {
     return entry.type;
   }

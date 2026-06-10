@@ -11,20 +11,25 @@ export type {
   GraphDataRecords,
   CachePolicy,
   GraphDataTransaction,
+  GraphDataNormalizeOptions,
   GraphDataWriteOptions,
   EntityRef,
-  FieldSignal,
+  GQLensFieldCardinality,
+  GQLensFieldContract,
+  GQLensFieldResult,
+  GQLensObjectContract,
+  GQLensObjectKind,
+  GQLensSchemaContract,
   GraphQLOperation,
   GraphQLResult,
   MutationOperation,
+  MutationExecutor,
   MutationOptions,
-  MutationSource,
+  MutationDefinition,
   GraphDataStore,
   PreparedSelection,
   PlannedSelectionPath,
   PlannedSelectionStep,
-  PlannerFieldMetadata,
-  PlannerMetadata,
   QuerySessionConfig,
   QueryDefaults,
   SelectionPath,
@@ -32,6 +37,8 @@ export type {
   VariablePlaceholder,
 } from "./types";
 
+export { GQLensError } from "./error";
+export type { GQLensErrorCode } from "./error";
 export { createSignal, watchSignal } from "./signal";
 export { selectionKey } from "./keys";
 export { createGraphDataStore } from "./cache";

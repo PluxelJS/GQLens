@@ -85,7 +85,7 @@ post.author.avatar   → User:1.avatar
 | scalar / enum list            | 单个 leaf field signal                       |
 | 无 id 的嵌套 object           | 以父 owner 为根递归拆到 embedded leaf signal |
 
-不得将任意运行时 JSON 盲目递归展开为 signal。递归拆分只适用于 schema metadata 已确认的 Value Object；自定义 scalar、JSON scalar 和 scalar list 仍作为单个 leaf field value。
+不得将任意运行时 JSON 盲目递归展开为 signal。递归拆分只适用于 schema contract 已确认的 Value Object；自定义 scalar、JSON scalar 和 scalar list 仍作为单个 leaf field value。
 
 这个规则的重点是保持响应式边界可预测：有 identity 的东西进入 normalized graph；没有 identity 的 schema object 只在父 root/entity/value path 下拥有 embedded address，而不是伪装成全局实体。
 
@@ -94,11 +94,6 @@ post.author.avatar   → User:1.avatar
 ## Store 接口
 
 ```ts
-interface FieldSignal<T = unknown> {
-  readonly sig: Signal<T>;
-  expires: number;
-}
-
 interface GraphDataRecord {
   readonly value: unknown;
   readonly expires: number;
@@ -119,21 +114,29 @@ interface GraphDataRecords {
   readonly slots: GraphDataRecordMap;
 }
 
+interface GraphDataWriteOptions {
+  readonly ttl?: number | undefined;
+}
+
+interface GraphDataNormalizeOptions extends GraphDataWriteOptions {
+  readonly schema?: GQLensSchemaContract | undefined;
+}
+
 interface GraphDataStore {
-  entry<T = unknown>(address: GraphDataAddress): FieldSignal<T>;
-  peek<T = unknown>(address: GraphDataAddress): FieldSignal<T> | undefined;
   read<T = unknown>(address: GraphDataAddress): T | undefined;
   write<T = unknown>(address: GraphDataAddress, value: T, options?: GraphDataWriteOptions): void;
   isFresh(address: GraphDataAddress): boolean;
   invalidate(target: GraphDataInvalidation | readonly GraphDataInvalidation[]): void;
   transaction<T>(run: (store: GraphDataStore) => T): GraphDataTransaction<T>;
   entity(type: string, id: string): EntityRef;
-  normalize(data: GraphQLResult, ttl?: number, metadata?: PlannerMetadata): void;
+  writeGraphQLResult(data: GraphQLResult, options?: GraphDataNormalizeOptions): void;
   clear(): void;
 }
 
 function createGraphDataStore(options?: { readonly records?: GraphDataRecords }): GraphDataStore;
 ```
+
+`entry()` / `peek()` / signal `expires` 是 generated runtime 内部能力，不属于 public `GraphDataStore`。应用代码通过 `read()`、`write()`、`writeGraphQLResult()`、`invalidate()` 和 `transaction()` 表达语义写入，不直接操作 signal。
 
 `GraphDataAddress` 是稳定 store 地址：`owner` 表达 root/entity，`path` 表达字段路径，`facet` 表达 relation family：
 
@@ -210,7 +213,7 @@ stale entry 不得被读路径当成 missing。读取返回旧值，调度层负
 ```
 query response ─┐
 live patch ─────┤
-mutation resp ──┼──→ GraphDataStore → FieldSignal → Reader
+mutation resp ──┼──→ GraphDataStore → field signal → Reader
 optimistic ─────┘
 ```
 

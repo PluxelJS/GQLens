@@ -25,6 +25,7 @@ import type {
   GraphDataInvalidation,
   GraphDataPath,
   GraphDataTransaction,
+  GraphDataNormalizeOptions,
   GraphDataWriteOptions,
   EntityRef,
   FieldSignal,
@@ -32,9 +33,11 @@ import type {
   GraphDataRecord,
   GraphQLResult,
   GraphDataStore,
-  PlannerMetadata,
+  GraphDataRuntimeStore,
+  GQLensSchemaContract,
   SelectionPath,
 } from "./types";
+import { fieldIsAbstract, fieldTypeName, queryFieldContract } from "./schema";
 
 export function createGraphDataStore(
   config: { readonly records?: GraphDataRecords } = {},
@@ -42,7 +45,7 @@ export function createGraphDataStore(
   const store = createGraphDataStoreRuntime(config.records);
   const entityRefs = createEntityRefStore();
 
-  const graphStore: GraphDataStore = {
+  const graphStore: GraphDataRuntimeStore = {
     entry<T = unknown>(address: GraphDataAddress): FieldSignal<T> {
       return getEntry<T>(entryStore(store, address), publicAddressKey(address));
     },
@@ -72,8 +75,9 @@ export function createGraphDataStore(
       return entityRefs.entity(type, id);
     },
 
-    normalize(data: GraphQLResult, ttl = 0, metadata?: PlannerMetadata): void {
-      normalizeGraphQLResult(data, store, entityRefs, expiresAt(ttl), metadata);
+    writeGraphQLResult(data: GraphQLResult, options: GraphDataNormalizeOptions = {}): void {
+      const ttl = options.ttl ?? 0;
+      normalizeGraphQLResult(data, store, entityRefs, expiresAt(ttl), options.schema);
     },
 
     invalidate(targetOrTargets: GraphDataInvalidation | readonly GraphDataInvalidation[]): void {
@@ -164,7 +168,7 @@ function invalidateTarget(
     return;
   }
 
-  invalidateSelection(graphStore, store, target.path, target.metadata);
+  invalidateSelection(graphStore, store, target.path, target.schema);
 }
 
 function invalidateRootTarget(
@@ -191,7 +195,7 @@ function invalidateSelection(
   graphStore: GraphDataStore,
   store: GraphDataStoreRuntime,
   path: SelectionPath,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): void {
   const rootPath = isListIdentityStep(path.steps.at(-1)) ? path.steps.slice(0, -1) : path.steps;
   invalidateAddressFamily(
@@ -202,8 +206,9 @@ function invalidateSelection(
   const [rootStep, ...rest] = path.steps;
   const keySteps = isListIdentityStep(rest.at(-1)) ? rest.slice(0, -1) : rest;
   const id = rootStep?.args?.["id"];
-  const type = rootStep ? metadata?.roots?.[rootStep.field]?.graphQLType : undefined;
-  const isAbstract = rootStep ? metadata?.roots?.[rootStep.field]?.isAbstract : undefined;
+  const rootField = rootStep ? queryFieldContract(schema, rootStep.field) : undefined;
+  const type = fieldTypeName(rootField);
+  const isAbstract = fieldIsAbstract(rootField);
   if (!rootStep || keySteps.length === 0 || id === undefined || !type || isAbstract) {
     return;
   }

@@ -1,14 +1,14 @@
-import type { GraphDataInvalidation, GraphDataStore, PlannerMetadata } from "./types";
+import type { GQLensSchemaContract, GraphDataInvalidation, GraphDataStore } from "./types";
 
 export function applyInvalidations(
   store: GraphDataStore,
   invalidations: readonly GraphDataInvalidation[],
-  metadata?: PlannerMetadata,
+  schema?: GQLensSchemaContract,
 ): void {
   store.invalidate(
     invalidations.map((invalidation) =>
-      invalidation.kind === "selection" && !invalidation.metadata
-        ? { ...invalidation, metadata }
+      invalidation.kind === "selection" && !invalidation.schema
+        ? { ...invalidation, schema }
         : invalidation,
     ),
   );

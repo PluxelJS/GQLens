@@ -1,45 +1,24 @@
 import { isVariablePlaceholder, stepKey } from "../src/keys";
+import { GQLensError } from "../src/error";
 import type {
   AlienSignalReader,
   GraphDataInvalidation,
   EntityRef,
   FieldSignal,
   GraphDataStore,
+  GraphDataRuntimeStore,
   PreparedSelection,
-  PlannerMetadata,
+  GQLensFieldContract,
+  GQLensObjectContract,
+  GQLensSchemaContract,
   SelectionPath,
   SelectionStep,
   VariablePlaceholder,
 } from "../src/types";
 
-const accessorMeta = Symbol("gqlens.accessorMeta");
+const accessorState = Symbol("gqlens.accessorState");
 
-export interface EntityMeta {
-  readonly type: string;
-  readonly kind?: "entity" | "value" | "root" | undefined;
-  readonly identityKeys: readonly string[];
-  readonly fields: Readonly<Record<string, FieldMeta>>;
-  readonly possibleTypes?: readonly string[] | undefined;
-  readonly typeConditions?: readonly string[] | undefined;
-  readonly isAbstract?: boolean | undefined;
-}
-
-export interface FieldMeta {
-  readonly name: string;
-  readonly kind: "scalar" | "entity" | "value" | "list";
-  readonly typeName?: string | undefined;
-  readonly targetObjectKind?: "entity" | "value" | undefined;
-  readonly hasArgs?: boolean | undefined;
-  readonly isAbstract?: boolean | undefined;
-  readonly possibleTypes?: readonly string[] | undefined;
-}
-
-export interface SchemaMeta {
-  readonly query: EntityMeta;
-  readonly mutation?: EntityMeta | undefined;
-  readonly planner?: PlannerMetadata | undefined;
-  readonly entities: Readonly<Record<string, EntityMeta>>;
-}
+export type { GQLensFieldContract, GQLensObjectContract, GQLensSchemaContract };
 
 export interface AccessorContext {
   readonly root: string;
@@ -48,7 +27,7 @@ export interface AccessorContext {
   readonly read: <T>(sig: AlienSignalReader<T>) => T;
 }
 
-interface AccessorNodeMeta {
+interface AccessorNodeState {
   readonly steps: readonly SelectionStep[];
 }
 
@@ -57,39 +36,27 @@ interface ResolvedOwner {
   readonly fieldSteps: readonly SelectionStep[];
 }
 
-export interface NormalizerEntry {
-  readonly type: string;
-  readonly fields: readonly NormalizerField[];
-}
-
-export interface NormalizerField {
-  readonly responseKey: string;
-  readonly cacheKey: string;
-  readonly nestedType?: string | undefined;
-  readonly isList?: boolean | undefined;
-}
-
 export function createAccessorNode<T extends object>(
   ctx: AccessorContext,
-  schema: SchemaMeta,
-  meta: EntityMeta,
+  schema: GQLensSchemaContract,
+  contract: GQLensObjectContract,
   steps: readonly SelectionStep[] = [],
   ownerResolver?: () => ResolvedOwner | undefined,
 ): T {
   const target = {};
   const childCache = new Map<string, unknown>();
-  Object.defineProperty(target, accessorMeta, {
+  Object.defineProperty(target, accessorState, {
     enumerable: false,
-    value: { steps } satisfies AccessorNodeMeta,
+    value: { steps } satisfies AccessorNodeState,
   });
 
-  for (const field of Object.values(meta.fields)) {
-    if (field.hasArgs) {
+  for (const field of Object.values(contract.fields)) {
+    if (field.args) {
       Object.defineProperty(target, field.name, {
         enumerable: false,
         value: (args?: Record<string, unknown>) => {
           const nextSteps = [...steps, { field: field.name, args }];
-          if (field.kind === "scalar") {
+          if (field.result.kind === "scalar") {
             return readField(ctx, schema, field, nextSteps, ownerResolver);
           }
           return readCachedField(ctx, schema, field, nextSteps, ownerResolver, childCache);
@@ -102,7 +69,7 @@ export function createAccessorNode<T extends object>(
       enumerable: false,
       get: () => {
         const nextSteps = [...steps, { field: field.name }];
-        if (field.kind === "scalar") {
+        if (field.result.kind === "scalar") {
           return readField(ctx, schema, field, nextSteps, ownerResolver);
         }
         return readCachedField(ctx, schema, field, nextSteps, ownerResolver, childCache);
@@ -110,7 +77,7 @@ export function createAccessorNode<T extends object>(
     });
   }
 
-  const typeConditions = meta.typeConditions ?? meta.possibleTypes ?? [];
+  const typeConditions = contract.typeConditions ?? contract.possibleTypes ?? [];
   if (typeConditions.length > 0) {
     Object.defineProperty(target, "$on", {
       enumerable: false,
@@ -123,8 +90,8 @@ export function createAccessorNode<T extends object>(
 
 function readCachedField(
   ctx: AccessorContext,
-  schema: SchemaMeta,
-  field: FieldMeta,
+  schema: GQLensSchemaContract,
+  field: GQLensFieldContract,
   steps: readonly SelectionStep[],
   ownerResolver: (() => ResolvedOwner | undefined) | undefined,
   cache: Map<string, unknown>,
@@ -140,34 +107,36 @@ function readCachedField(
 
 function readField(
   ctx: AccessorContext,
-  schema: SchemaMeta,
-  field: FieldMeta,
+  schema: GQLensSchemaContract,
+  field: GQLensFieldContract,
   steps: readonly SelectionStep[],
   ownerResolver: (() => ResolvedOwner | undefined) | undefined,
 ): unknown {
-  if (field.kind === "scalar") {
+  if (field.result.kind === "scalar") {
     ctx.demand(steps);
     const owner = ownerResolver?.();
+    const store = runtimeStore(ctx.store);
     const entry = owner
-      ? ctx.store.entry({
+      ? store.entry({
           owner: { kind: "entity", ref: owner.ref },
           path: scalarPath(owner, steps),
         })
-      : ctx.store.entry({ owner: { kind: "root", root: ctx.root }, path: steps });
+      : store.entry({ owner: { kind: "root", root: ctx.root }, path: steps });
     return ctx.read(entry.sig);
   }
 
-  if (field.kind === "list") {
-    return createListAccessor(ctx, steps, ownerResolver, field.isAbstract === true);
+  if (field.result.cardinality === "list") {
+    return createListAccessor(ctx, steps, ownerResolver, field.result.isAbstract === true);
   }
 
-  const childMeta = field.typeName ? schema.entities[field.typeName] : undefined;
-  if (!childMeta) {
+  const typeName = field.result.typeName;
+  const childContract = schema.objects[typeName];
+  if (!childContract) {
     return createAccessorNode(ctx, schema, schema.query, steps);
   }
 
-  if (field.kind === "value" || field.targetObjectKind === "value" || childMeta.kind === "value") {
-    return createAccessorNode(ctx, schema, childMeta, steps, () => {
+  if (field.result.objectKind === "value" || childContract.kind === "value") {
+    return createAccessorNode(ctx, schema, childContract, steps, () => {
       const owner = ownerResolver?.();
       if (!owner) {
         return undefined;
@@ -177,14 +146,14 @@ function readField(
     });
   }
 
-  return createAccessorNode(ctx, schema, childMeta, steps, () => {
+  return createAccessorNode(ctx, schema, childContract, steps, () => {
     const step = lastStep(steps);
     if (!step) {
       return undefined;
     }
 
     if (!ownerResolver) {
-      const slot = ctx.store.entry<EntityRef | null | undefined>({
+      const slot = runtimeStore(ctx.store).entry<EntityRef | null | undefined>({
         owner: { kind: "root", root: ctx.root },
         path: steps,
       });
@@ -194,8 +163,8 @@ function readField(
       }
 
       const id = step.args?.["id"];
-      if (field.typeName && id !== undefined && !childMeta.isAbstract) {
-        return { ref: ctx.store.entity(field.typeName, String(id)), fieldSteps: [] };
+      if (id !== undefined && !childContract.isAbstract) {
+        return { ref: ctx.store.entity(typeName, String(id)), fieldSteps: [] };
       }
     }
 
@@ -205,7 +174,7 @@ function readField(
         owner.fieldSteps.length > 0
           ? { ...step, field: graphDataFieldKey([...owner.fieldSteps, step]) }
           : step;
-      const relation = ctx.store.entry<EntityRef | null | undefined>({
+      const relation = runtimeStore(ctx.store).entry<EntityRef | null | undefined>({
         owner: { kind: "entity", ref: owner.ref },
         path: [relationStep],
         facet: "link",
@@ -213,7 +182,7 @@ function readField(
       const ref = ctx.read<EntityRef | null | undefined>(relation.sig);
       return ref ? { ref, fieldSteps: [] } : undefined;
     }
-    const slot = ctx.store.entry<EntityRef | undefined>({
+    const slot = runtimeStore(ctx.store).entry<EntityRef | undefined>({
       owner: { kind: "root", root: ctx.root },
       path: steps,
     });
@@ -224,15 +193,15 @@ function readField(
 
 function createInlineFragmentAccessors(
   ctx: AccessorContext,
-  schema: SchemaMeta,
+  schema: GQLensSchemaContract,
   steps: readonly SelectionStep[],
   ownerResolver: (() => ResolvedOwner | undefined) | undefined,
   typeConditions: readonly string[],
 ): object {
   const target = {};
   for (const typeName of typeConditions) {
-    const meta = schema.entities[typeName];
-    if (!meta) {
+    const contract = schema.objects[typeName];
+    if (!contract) {
       continue;
     }
     Object.defineProperty(target, typeName, {
@@ -241,11 +210,11 @@ function createInlineFragmentAccessors(
         createAccessorNode(
           ctx,
           schema,
-          meta,
+          contract,
           [...steps, { field: "$on", typeCondition: typeName }],
           () => {
             const owner = ownerResolver?.();
-            if (!owner || !matchesTypeCondition(meta, owner.ref)) {
+            if (!owner || !matchesTypeCondition(contract, owner.ref)) {
               return undefined;
             }
             return { ref: owner.ref, fieldSteps: [] };
@@ -266,9 +235,9 @@ function createListAccessor(
   readonly refs?: readonly EntityRef[] | undefined;
 } {
   const target = {};
-  Object.defineProperty(target, accessorMeta, {
+  Object.defineProperty(target, accessorState, {
     enumerable: false,
-    value: { steps } satisfies AccessorNodeMeta,
+    value: { steps } satisfies AccessorNodeState,
   });
   const identityField = isAbstract ? "refs" : "ids";
   Object.defineProperty(target, identityField, {
@@ -285,7 +254,9 @@ function createListAccessor(
           owner.fieldSteps.length > 0
             ? { ...step, field: graphDataFieldKey([...owner.fieldSteps, step]) }
             : step;
-        const slot = ctx.store.entry<readonly string[] | readonly EntityRef[] | undefined>({
+        const slot = runtimeStore(ctx.store).entry<
+          readonly string[] | readonly EntityRef[] | undefined
+        >({
           owner: { kind: "entity", ref: owner.ref },
           path: [relationStep],
           facet: identityField,
@@ -294,7 +265,9 @@ function createListAccessor(
           slot.sig as AlienSignalReader<readonly string[] | readonly EntityRef[] | undefined>,
         );
       }
-      const entry = ctx.store.entry<readonly string[] | readonly EntityRef[] | undefined>({
+      const entry = runtimeStore(ctx.store).entry<
+        readonly string[] | readonly EntityRef[] | undefined
+      >({
         owner: { kind: "root", root: ctx.root },
         path: steps,
         facet: identityField,
@@ -329,15 +302,19 @@ function lastStep(steps: readonly SelectionStep[]): SelectionStep | undefined {
   return steps[steps.length - 1];
 }
 
-function matchesTypeCondition(meta: EntityMeta, ref: EntityRef): boolean {
-  return ref.type === meta.type || (meta.possibleTypes?.includes(ref.type) ?? false);
+function runtimeStore(store: GraphDataStore): GraphDataRuntimeStore {
+  return store as GraphDataRuntimeStore;
+}
+
+function matchesTypeCondition(contract: GQLensObjectContract, ref: EntityRef): boolean {
+  return ref.type === contract.type || (contract.possibleTypes?.includes(ref.type) ?? false);
 }
 
 export type { EntityRef, SelectionStep };
 
 export function defineSelection<TQuery extends object>(
-  schema: SchemaMeta,
-  queryMeta: EntityMeta,
+  schema: GQLensSchemaContract,
+  queryContract: GQLensObjectContract,
   callback: (q: TQuery, v: (name: string) => VariablePlaceholder) => void,
 ): PreparedSelection {
   const paths: SelectionPath[] = [];
@@ -345,7 +322,7 @@ export function defineSelection<TQuery extends object>(
   const query = createAccessorNode<TQuery>(
     selectorContext(schema.query.type, paths),
     schema,
-    queryMeta,
+    queryContract,
   );
   callback(query, (name) => {
     variables.add(name);
@@ -367,16 +344,16 @@ export function bindSelection(
 }
 
 export function defineInvalidation<TQuery extends object>(
-  schema: SchemaMeta,
-  queryMeta: EntityMeta,
+  schema: GQLensSchemaContract,
+  queryContract: GQLensObjectContract,
   callback: (q: TQuery) => unknown,
 ): GraphDataInvalidation {
   const paths: SelectionPath[] = [];
   const ctx = selectorContext(schema.query.type, paths);
-  const query = createAccessorNode<TQuery>(ctx, schema, queryMeta);
+  const query = createAccessorNode<TQuery>(ctx, schema, queryContract);
   const result = callback(query);
   if (paths[0]) {
-    return { kind: "selection", path: paths[0], metadata: schema.planner };
+    return { kind: "selection", path: paths[0], schema };
   }
   const steps = accessorSteps(result);
   return { kind: "root", root: schema.query.type, paths: [steps] };
@@ -396,7 +373,7 @@ function selectorContext(root: string, paths: SelectionPath[]): AccessorContext 
   };
 }
 
-function selectorStore(): GraphDataStore {
+function selectorStore(): GraphDataRuntimeStore {
   return {
     entry: <T = unknown>() => selectorEntry<T>(),
     peek: () => undefined,
@@ -412,7 +389,7 @@ function selectorStore(): GraphDataStore {
     entity(type: string, id: string): EntityRef {
       return { type, id };
     },
-    normalize: selectorNoop,
+    writeGraphQLResult: selectorNoop,
     invalidate: selectorNoop,
     clear: selectorNoop,
   };
@@ -430,8 +407,8 @@ function selectorEntry<T>(): FieldSignal<T> {
 }
 
 function accessorSteps(value: unknown): readonly SelectionStep[] {
-  if (value && typeof value === "object" && accessorMeta in value) {
-    return (value as { readonly [accessorMeta]: AccessorNodeMeta })[accessorMeta].steps;
+  if (value && typeof value === "object" && accessorState in value) {
+    return (value as { readonly [accessorState]: AccessorNodeState })[accessorState].steps;
   }
   return [];
 }
@@ -440,7 +417,11 @@ function bindValue(value: unknown, variables: Readonly<Record<string, unknown>>)
   if (isVariablePlaceholder(value)) {
     const name = value["__gqlensVariable"];
     if (!Object.hasOwn(variables, name)) {
-      throw new Error(`Missing GQLens prepared selection variable: ${name}`);
+      throw new GQLensError({
+        code: "PREPARED_VARIABLE_MISSING",
+        message: `Missing GQLens prepared selection variable: ${name}`,
+        details: { name },
+      });
     }
     return variables[name];
   }

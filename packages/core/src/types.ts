@@ -58,7 +58,7 @@ export type GraphDataInvalidation =
   | {
       readonly kind: "selection";
       readonly path: SelectionPath;
-      readonly metadata?: PlannerMetadata | undefined;
+      readonly schema?: GQLensSchemaContract | undefined;
     };
 
 export interface GraphDataWriteOptions {
@@ -71,14 +71,22 @@ export interface GraphDataWriteOptions {
   readonly ttl?: number | undefined;
 }
 
+export interface GraphDataNormalizeOptions extends GraphDataWriteOptions {
+  /**
+   * Generated GQLens schema contract used to normalize GraphQL result shape.
+   *
+   * @default undefined
+   * Schema-agnostic normalization is used when omitted.
+   */
+  readonly schema?: GQLensSchemaContract | undefined;
+}
+
 export interface GraphDataTransaction<T = unknown> {
   readonly result: T;
   rollback(): void;
 }
 
 export interface GraphDataStore {
-  entry<T = unknown>(address: GraphDataAddress): FieldSignal<T>;
-  peek<T = unknown>(address: GraphDataAddress): FieldSignal<T> | undefined;
   read<T = unknown>(address: GraphDataAddress): T | undefined;
   write<T = unknown>(address: GraphDataAddress, value: T, options?: GraphDataWriteOptions): void;
   isFresh(address: GraphDataAddress): boolean;
@@ -86,8 +94,13 @@ export interface GraphDataStore {
   transaction<T>(run: (store: GraphDataStore) => T): GraphDataTransaction<T>;
 
   entity(type: string, id: string): EntityRef;
-  normalize(data: GraphQLResult, ttl?: number, metadata?: PlannerMetadata): void;
+  writeGraphQLResult(data: GraphQLResult, options?: GraphDataNormalizeOptions): void;
   clear(): void;
+}
+
+export interface GraphDataRuntimeStore extends GraphDataStore {
+  entry<T = unknown>(address: GraphDataAddress): FieldSignal<T>;
+  peek<T = unknown>(address: GraphDataAddress): FieldSignal<T> | undefined;
 }
 
 export interface SelectionPath {
@@ -124,12 +137,12 @@ export interface QueryDefaults {
 /** Core query-session execution config. Framework-level options live in adapter config types. */
 export interface QuerySessionConfig extends QueryDefaults {
   /**
-   * Planner metadata generated from the GraphQL schema. Usually injected by generated accessors.
+   * Generated GQLens schema contract. Usually injected by generated accessors.
    *
    * @default undefined
    * Schema-agnostic planning and normalization are used when omitted.
    */
-  readonly metadata?: PlannerMetadata | undefined;
+  readonly schema?: GQLensSchemaContract | undefined;
 }
 
 export type GraphQLResult = Record<string, unknown>;
@@ -144,25 +157,46 @@ export interface GraphQLOperation {
 export interface MutationOperation<TInput extends Record<string, unknown>, TData> {
   readonly operationName: string;
   readonly query: string;
-  readonly metadata?: PlannerMetadata | undefined;
+  readonly schema?: GQLensSchemaContract | undefined;
   readonly result?: TData | undefined;
   variables(input: TInput): Record<string, unknown>;
 }
 
-export interface PlannerMetadata {
-  readonly roots?: Readonly<Record<string, PlannerFieldMetadata>> | undefined;
-  readonly types?:
-    | Readonly<Record<string, Readonly<Record<string, PlannerFieldMetadata>>>>
-    | undefined;
+export type GQLensObjectKind = "entity" | "value" | "root";
+export type GQLensFieldCardinality = "one" | "list";
+
+export interface GQLensSchemaContract {
+  readonly query: GQLensObjectContract;
+  readonly mutation?: GQLensObjectContract | undefined;
+  readonly objects: Readonly<Record<string, GQLensObjectContract>>;
 }
 
-export interface PlannerFieldMetadata {
-  readonly graphQLType?: string | undefined;
-  readonly targetObjectKind?: "entity" | "value" | undefined;
-  readonly returnsEntity?: boolean | undefined;
-  readonly returnsList?: boolean | undefined;
+export interface GQLensObjectContract {
+  readonly type: string;
+  readonly kind: GQLensObjectKind;
+  readonly fields: Readonly<Record<string, GQLensFieldContract>>;
   readonly isAbstract?: boolean | undefined;
   readonly possibleTypes?: readonly string[] | undefined;
+  readonly typeConditions?: readonly string[] | undefined;
+}
+
+export type GQLensFieldResult =
+  | {
+      readonly kind: "scalar";
+      readonly cardinality: GQLensFieldCardinality;
+    }
+  | {
+      readonly kind: "object";
+      readonly cardinality: GQLensFieldCardinality;
+      readonly typeName: string;
+      readonly objectKind: "entity" | "value";
+      readonly isAbstract?: boolean | undefined;
+      readonly possibleTypes?: readonly string[] | undefined;
+    };
+
+export interface GQLensFieldContract {
+  readonly name: string;
+  readonly result: GQLensFieldResult;
   readonly args?: Readonly<Record<string, string>> | undefined;
 }
 
@@ -195,6 +229,10 @@ export interface MutationOptions {
   readonly invalidates?: readonly GraphDataInvalidation[] | undefined;
 }
 
-export type MutationSource<TInput extends Record<string, unknown>, TData> =
-  | ((input: TInput) => Promise<TData>)
+export type MutationExecutor<TInput extends Record<string, unknown>, TData> = (
+  input: TInput,
+) => Promise<TData>;
+
+export type MutationDefinition<TInput extends Record<string, unknown>, TData> =
+  | MutationExecutor<TInput, TData>
   | MutationOperation<TInput, TData>;

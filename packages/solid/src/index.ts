@@ -12,7 +12,7 @@ import {
   type Fetcher,
   type LiveSubscriber,
   type MutationOptions,
-  type MutationSource,
+  type MutationDefinition,
   type GraphDataStore,
   type PreparedSelection,
   type QuerySession,
@@ -180,17 +180,17 @@ function querySessionConfig(config: QueryConfig): QuerySessionConfig {
   return {
     policy: config.policy ?? "cache-and-network",
     ttl: config.ttl ?? 0,
-    metadata: config.metadata,
+    schema: config.schema,
   };
 }
 
 export function createMutation<TInput extends Record<string, unknown>, TData>(
-  mutation: MutationSource<TInput, TData>,
+  definition: MutationDefinition<TInput, TData>,
   config: MutationConfig = {},
-): (input: TInput & MutationOptions) => Promise<TData> {
+): (input: TInput, options?: MutationOptions) => Promise<TData> {
   const store = config.store ?? createGraphDataStore();
   const fetcher = config.fetcher ?? createFetchTransport(config.endpoint ?? defaultEndpoint);
-  return createMutationRunner({ store, mutation, fetcher });
+  return createMutationRunner({ store, definition, fetcher });
 }
 
 interface SolidReaderScope {

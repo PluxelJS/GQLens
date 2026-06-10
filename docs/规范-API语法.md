@@ -110,7 +110,7 @@ type condition 通过 `$on`：
 q.pet({ id }).$on.Cat.meows;
 ```
 
-`$on.<TypeCondition>` 等价于 GraphQL `... on <TypeCondition>`。可选分支由 schema metadata 生成，不由运行时属性探测决定。
+`$on.<TypeCondition>` 等价于 GraphQL `... on <TypeCondition>`。可选分支由 schema contract 生成，不由运行时属性探测决定。
 
 分支不适用时返回 `undefined`，不是 `null`。
 
@@ -207,7 +207,7 @@ JSON.stringify(q.viewer);
 
 - dynamic field API 绕过 schema-generated contract
 - list array API 混淆 list identity 与 entity field
-- field-level directive API 把 operation metadata 塞回字段链
+- field-level directive API 把 operation options 塞回字段链
 - runtime `q.invalidate()` 混淆 read context 与 invalidation selector context
 - object operations 把 accessor node 误当数据对象
 

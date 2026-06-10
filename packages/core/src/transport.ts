@@ -1,5 +1,6 @@
 import type { GraphQLOperation, GraphQLResult } from "./types";
 import { isRecord } from "./guards";
+import { GQLensError } from "./error";
 
 export type Fetcher = (op: GraphQLOperation) => Promise<unknown>;
 export type LiveSubscriber = (
@@ -37,7 +38,11 @@ export function createFetchTransport(endpoint: string): Fetcher {
     });
 
     if (!response.ok) {
-      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`);
+      throw new GQLensError({
+        code: "GRAPHQL_REQUEST_FAILED",
+        message: `GraphQL request failed: ${response.status} ${response.statusText}`,
+        details: { status: response.status, statusText: response.statusText },
+      });
     }
 
     const json = (await response.json()) as {
@@ -45,7 +50,11 @@ export function createFetchTransport(endpoint: string): Fetcher {
       readonly errors?: readonly unknown[];
     };
     if (json.errors && json.errors.length > 0) {
-      throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+      throw new GQLensError({
+        code: "GRAPHQL_RESPONSE_ERRORS",
+        message: "GraphQL response contains errors.",
+        details: { errors: json.errors },
+      });
     }
     return json.data ?? {};
   };
@@ -82,7 +91,10 @@ export function createLiveTransport(endpoint: string): [LiveSubscriber, () => vo
 
     const ctor = (globalThis as { readonly WebSocket?: LiveSocketConstructor }).WebSocket;
     if (!ctor) {
-      throw new Error("WebSocket is not available in this runtime");
+      throw new GQLensError({
+        code: "WEBSOCKET_UNAVAILABLE",
+        message: "WebSocket is not available in this runtime.",
+      });
     }
 
     socket = new ctor(endpoint);
@@ -105,7 +117,11 @@ export function createLiveTransport(endpoint: string): [LiveSubscriber, () => vo
         }
       }
       if (message.type === "error") {
-        const error = new Error(JSON.stringify(message.payload ?? "Live query error"));
+        const error = new GQLensError({
+          code: "LIVE_QUERY_ERROR",
+          message: "Live query transport reported an error.",
+          details: { payload: message.payload },
+        });
         const listener = message.id ? errorListeners.get(message.id) : undefined;
         if (listener) {
           listener(error);

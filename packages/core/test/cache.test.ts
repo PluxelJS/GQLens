@@ -45,8 +45,8 @@ describe("GraphDataStore", () => {
 
     cache.invalidate({ kind: "address", address, family: true });
 
-    expect(cache.entry({ ...address, facet: "ids" }).expires).toBeLessThan(Date.now());
-    expect(cache.entry({ ...address, facet: "refs" }).expires).toBeLessThan(Date.now());
+    expect(cacheSlot(cache, "User:1.posts.ids").expires).toBeLessThan(Date.now());
+    expect(cacheSlot(cache, "User:1.posts.refs").expires).toBeLessThan(Date.now());
   });
 
   test("reads and writes entity relation links through canonical cache addresses", () => {
@@ -182,7 +182,7 @@ describe("GraphDataStore", () => {
   test("normalize writes scalar fields into cache", () => {
     const cache = createGraphDataStore();
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       user: {
         __typename: "User",
         id: "1",
@@ -200,7 +200,7 @@ describe("GraphDataStore", () => {
   test("normalize writes nested entity fields", () => {
     const cache = createGraphDataStore();
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       post: {
         __typename: "Post",
         id: "9",
@@ -220,7 +220,7 @@ describe("GraphDataStore", () => {
   test("normalize writes list id arrays", () => {
     const cache = createGraphDataStore();
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       todos: [
         { __typename: "Todo", id: "1", title: "Buy milk", done: false },
         { __typename: "Todo", id: "2", title: "Walk dog", done: true },
@@ -240,7 +240,7 @@ describe("GraphDataStore", () => {
   test("normalize writes root entity ref slots", () => {
     const cache = createGraphDataStore();
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       viewer: { __typename: "User", id: "1", name: "Alice" },
       todos: [
         { __typename: "Todo", id: "1", title: "Buy milk" },
@@ -255,7 +255,7 @@ describe("GraphDataStore", () => {
   test("normalize clears stale list ids when a slot becomes null", () => {
     const cache = createGraphDataStore();
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       todos: [
         { __typename: "Todo", id: "1", title: "Buy milk" },
         { __typename: "Todo", id: "2", title: "Walk dog" },
@@ -263,7 +263,7 @@ describe("GraphDataStore", () => {
     });
     expect(cacheSlot(cache, "Query.todos.ids").sig()).toStrictEqual(["1", "2"]);
 
-    cache.normalize({ todos: null });
+    cache.writeGraphQLResult({ todos: null });
 
     expect(cacheSlot(cache, "Query.todos").sig()).toBeNull();
     expect(cacheSlot(cache, "Query.todos.ids").sig()).toBeUndefined();
@@ -273,7 +273,10 @@ describe("GraphDataStore", () => {
   test("TTL: normalize with ttl sets expiration", () => {
     const cache = createGraphDataStore();
     const future = Date.now() + 60000;
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } }, 60000);
+    cache.writeGraphQLResult(
+      { user: { __typename: "User", id: "1", name: "Alice" } },
+      { ttl: 60000 },
+    );
 
     const ref = cache.entity("User", "1");
     expect(cacheField<string>(cache, ref, "name").expires).toBeGreaterThanOrEqual(future - 100);
@@ -281,7 +284,7 @@ describe("GraphDataStore", () => {
 
   test("TTL: default ttl of 0 means no expiry", () => {
     const cache = createGraphDataStore();
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Alice" } });
     expect(cacheField(cache, cache.entity("User", "1"), "name").expires).toBe(0);
   });
 
@@ -327,9 +330,9 @@ describe("GraphDataStore", () => {
     const cache = createGraphDataStore();
 
     // viewer resolves to User:1
-    cache.normalize({ viewer: { __typename: "User", id: "1", name: "ViewerName" } });
+    cache.writeGraphQLResult({ viewer: { __typename: "User", id: "1", name: "ViewerName" } });
     // post.author also resolves to User:1
-    cache.normalize({
+    cache.writeGraphQLResult({
       post: {
         __typename: "Post",
         id: "9",
@@ -344,7 +347,9 @@ describe("GraphDataStore", () => {
 
   test("normalize handles null fields gracefully", () => {
     const cache = createGraphDataStore();
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice", avatar: null } });
+    cache.writeGraphQLResult({
+      user: { __typename: "User", id: "1", name: "Alice", avatar: null },
+    });
     expect(cacheField(cache, cache.entity("User", "1"), "avatar").sig()).toBeNull();
   });
 
@@ -352,7 +357,7 @@ describe("GraphDataStore", () => {
     const cache = createGraphDataStore();
     const settings = { theme: "dark", shortcuts: { save: "mod+s" } };
 
-    cache.normalize({ user: { __typename: "User", id: "1", settings } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", settings } });
 
     expect(cacheField(cache, cache.entity("User", "1"), "settings").sig()).toStrictEqual(settings);
   });
@@ -361,7 +366,7 @@ describe("GraphDataStore", () => {
     const cache = createGraphDataStore();
     const tags = ["typescript", "graphql"];
 
-    cache.normalize({ post: { __typename: "Post", id: "1", tags } });
+    cache.writeGraphQLResult({ post: { __typename: "Post", id: "1", tags } });
 
     expect(cacheField(cache, cache.entity("Post", "1"), "tags").sig()).toStrictEqual(tags);
   });
@@ -370,7 +375,7 @@ describe("GraphDataStore", () => {
     const cache = createGraphDataStore();
     const tags = ["typescript", "graphql"];
 
-    cache.normalize({ tags });
+    cache.writeGraphQLResult({ tags });
 
     expect(cacheSlot(cache, "Query.tags").sig()).toStrictEqual(tags);
     expect(isCacheSlotFresh(cache, "Query.tags.ids")).toBe(false);
@@ -391,13 +396,13 @@ describe("GraphDataStore", () => {
     const cache = createGraphDataStore();
     const ref = cache.entity("User", "1");
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       user: { __typename: "User", id: "1", name: "Alice", avatar: "url1" },
     });
     expect(cacheField<string>(cache, ref, "name").sig()).toBe("Alice");
     expect(cacheField<string>(cache, ref, "avatar").sig()).toBe("url1");
 
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Bob" } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Bob" } });
 
     expect(cacheField<string>(cache, ref, "name").sig()).toBe("Bob");
     expect(cacheField<string>(cache, ref, "avatar").sig()).toBe("url1");
@@ -406,7 +411,7 @@ describe("GraphDataStore", () => {
   test("normalize with nested recursion handles repeated entities safely", () => {
     const cache = createGraphDataStore();
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       a: {
         __typename: "A",
         id: "1",
@@ -416,7 +421,7 @@ describe("GraphDataStore", () => {
     expect(cacheField<string>(cache, cache.entity("A", "1"), "id").sig()).toBe("1");
     expect(cacheField<string>(cache, cache.entity("B", "1"), "name").sig()).toBe("Beta");
 
-    cache.normalize({
+    cache.writeGraphQLResult({
       b: {
         __typename: "B",
         id: "1",

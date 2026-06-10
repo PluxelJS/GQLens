@@ -6,7 +6,7 @@ import {
   type SelectionPath,
   type SelectionStep,
 } from "@gqlens/core";
-import { cacheField } from "./cache-helpers";
+import { cacheField, schemaContract } from "./cache-helpers";
 
 const p = (steps: SelectionStep[]): SelectionPath => ({
   root: "Query",
@@ -30,7 +30,7 @@ describe("QuerySession cache materialization", () => {
           status: { online: false, source: { kind: "package" } },
         },
       }),
-      metadata: valueObjectMetadata(),
+      schema: valueObjectSchema(),
     });
     const reader = session.mount();
 
@@ -60,7 +60,7 @@ describe("QuerySession cache materialization", () => {
 
   test("treats aliased root embedded value object leaves as fresh across sessions", async () => {
     const cache = createGraphDataStore();
-    const metadata = valueObjectMetadata();
+    const schema = valueObjectSchema();
     const paths = [
       p([
         { field: "user", args: { id: "1" } },
@@ -91,7 +91,7 @@ describe("QuerySession cache materialization", () => {
       store: cache,
       fetcher: firstFetch,
       policy: "cache-first",
-      metadata,
+      schema,
     });
     const firstReader = firstSession.mount();
     firstSession.replace(firstReader, paths);
@@ -103,7 +103,7 @@ describe("QuerySession cache materialization", () => {
       store: cache,
       fetcher: secondFetch,
       policy: "cache-first",
-      metadata,
+      schema,
     });
     const secondReader = secondSession.mount();
     secondSession.replace(secondReader, paths);
@@ -116,8 +116,8 @@ describe("QuerySession cache materialization", () => {
 
   test("clears selected owner leaves and stays fresh for aliased root null value objects", async () => {
     const cache = createGraphDataStore();
-    const metadata = valueObjectMetadata();
-    cache.normalize(
+    const schema = valueObjectSchema();
+    cache.writeGraphQLResult(
       {
         user: {
           __typename: "User",
@@ -125,8 +125,7 @@ describe("QuerySession cache materialization", () => {
           status: { online: true, source: { kind: "hmr" } },
         },
       },
-      0,
-      metadata,
+      { schema },
     );
     const paths = [
       p([
@@ -158,7 +157,7 @@ describe("QuerySession cache materialization", () => {
       store: cache,
       fetcher: firstFetch,
       policy: "network-only",
-      metadata,
+      schema,
     });
     const firstReader = firstSession.mount();
     firstSession.replace(firstReader, paths);
@@ -170,7 +169,7 @@ describe("QuerySession cache materialization", () => {
       store: cache,
       fetcher: secondFetch,
       policy: "cache-first",
-      metadata,
+      schema,
     });
     const secondReader = secondSession.mount();
     secondSession.replace(secondReader, paths);
@@ -196,13 +195,13 @@ function nextMacrotask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function valueObjectMetadata() {
-  return {
+function valueObjectSchema() {
+  return schemaContract({
     roots: {
       user: {
         returnsEntity: true,
         graphQLType: "User",
-        targetObjectKind: "entity",
+        objectKind: "entity",
         args: { id: "ID!" },
       },
     },
@@ -211,7 +210,7 @@ function valueObjectMetadata() {
         status: {
           returnsEntity: false,
           graphQLType: "UserStatus",
-          targetObjectKind: "value",
+          objectKind: "value",
         },
       },
       UserStatus: {
@@ -219,12 +218,12 @@ function valueObjectMetadata() {
         source: {
           returnsEntity: false,
           graphQLType: "StatusSource",
-          targetObjectKind: "value",
+          objectKind: "value",
         },
       },
       StatusSource: {
         kind: { returnsEntity: false },
       },
     },
-  } as const;
+  });
 }

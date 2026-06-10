@@ -5,9 +5,10 @@
 import { parse, buildASTSchema, printSchema, type GraphQLSchema } from "graphql";
 import { resolveAdapter, type AccessorAdapter, type BuiltInFramework } from "./adapters";
 import { generateTypes } from "./types";
-import { generateNormalizer, generateInvalidation } from "./normalizer";
+import { generateInvalidation } from "./invalidation";
 import { generateAccessor } from "./accessor";
 import { validateEntitySchemaContract } from "./utils";
+import { GQLensCodegenError } from "./error";
 
 export type SchemaInput = string | GraphQLSchema;
 
@@ -27,7 +28,6 @@ export async function generateFiles(options: GenerateFilesOptions): Promise<Gene
 
   const files: Record<string, string> = {};
   files["types.ts"] = await generateTypes(schemaSDL);
-  files["normalizer.ts"] = generateNormalizer(schema);
   files["invalidation.ts"] = generateInvalidation(schema);
   files["accessor.ts"] = generateAccessor(schema, adapter);
 
@@ -43,13 +43,18 @@ export function schemaToSDL(schema: SchemaInput): string {
       return printSchema(schema);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Unable to print GraphQLSchema. Pass SDL string when schema and codegen may resolve different graphql package instances. Cause: ${message}`,
-        { cause: error },
-      );
+      throw new GQLensCodegenError({
+        code: "INVALID_SCHEMA_INPUT",
+        message:
+          "Unable to print GraphQLSchema. Pass SDL string when schema and codegen may resolve different graphql package instances.",
+        details: { cause: message },
+      });
     }
   }
-  throw new Error("Expected GraphQL SDL string or GraphQLSchema.");
+  throw new GQLensCodegenError({
+    code: "INVALID_SCHEMA_INPUT",
+    message: "Expected GraphQL SDL string or GraphQLSchema.",
+  });
 }
 
 function isGraphQLSchemaLike(value: unknown): value is GraphQLSchema {

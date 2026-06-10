@@ -1,11 +1,12 @@
 import type {
   EntityRef,
+  GQLensFieldContract,
+  GQLensSchemaContract,
   GraphQLResult,
-  PlannerFieldMetadata,
-  PlannerMetadata,
   SelectionStep,
 } from "../types";
 import { isEntityObject, isRecord } from "../guards";
+import { fieldObjectKind, fieldReturnsList, fieldTypeName } from "../schema";
 import {
   graphDataFieldKey,
   entityFieldKey,
@@ -28,8 +29,8 @@ interface NormalizeContext {
   readonly expires: number;
 }
 
-interface MetadataNormalizeContext extends NormalizeContext {
-  readonly metadata: PlannerMetadata;
+interface SchemaNormalizeContext extends NormalizeContext {
+  readonly schema: GQLensSchemaContract;
 }
 
 interface NormalizeTarget {
@@ -43,24 +44,37 @@ export function normalizeGraphQLResult(
   store: GraphDataStoreRuntime,
   entityRefs: EntityRefStore,
   expires: number,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): void {
   const context = { store, entityRefs, expires };
   for (const [rootField, value] of Object.entries(data)) {
-    const slotBase = `Query.${rootField}`;
-    const meta = metadata?.roots?.[rootField];
-    if (meta) {
-      normalizeValueWithMeta(value, meta, { ...context, metadata }, rootTarget(slotBase));
-      continue;
+    if (schema) {
+      const root = schema.query.fields[rootField]
+        ? schema.query
+        : schema.mutation?.fields[rootField]
+          ? schema.mutation
+          : undefined;
+      const field = root?.fields[rootField];
+      if (root && field) {
+        normalizeValueWithContract(
+          value,
+          field,
+          { ...context, schema },
+          rootTarget(`${root.type}.${rootField}`),
+        );
+        continue;
+      }
     }
+
+    const slotBase = `Query.${rootField}`;
     normalizeValue(value, context, slotBase);
   }
 }
 
-function normalizeValueWithMeta(
+function normalizeValueWithContract(
   value: unknown,
-  meta: PlannerFieldMetadata,
-  context: MetadataNormalizeContext,
+  field: GQLensFieldContract,
+  context: SchemaNormalizeContext,
   target: NormalizeTarget,
 ): EntityRef | readonly EntityRef[] | null | undefined {
   const { store, expires } = context;
@@ -78,27 +92,27 @@ function normalizeValueWithMeta(
     return null;
   }
 
-  if (meta.returnsList) {
+  if (fieldReturnsList(field)) {
     if (!Array.isArray(value)) {
       writeEntry(store.slots, slotKey, value, expires);
       clearSlotIdentities(store.slots, slotKey);
       return undefined;
     }
 
-    if (!meta.graphQLType) {
+    const typeName = fieldTypeName(field);
+    if (!typeName) {
       writeLeafValue(value, context, target);
       return undefined;
     }
 
-    const typeName = meta.graphQLType;
-    if (objectKind(meta) === "value") {
+    if (fieldObjectKind(field) === "value") {
       writeEntry(store.slots, slotKey, value, expires);
       clearSlotIdentities(store.slots, slotKey);
       return undefined;
     }
 
     const refs = value.flatMap((item) =>
-      isEntityObject(item) ? [normalizeEntityWithMeta(item, context, typeName)] : [],
+      isEntityObject(item) ? [normalizeEntityWithContract(item, context, typeName)] : [],
     );
     writeListRelation(store, slotKey, refs, expires);
     if (ownerRef && fieldSteps.length > 0) {
@@ -110,22 +124,23 @@ function normalizeValueWithMeta(
     return refs;
   }
 
-  if (!meta.graphQLType) {
+  const typeName = fieldTypeName(field);
+  if (!typeName) {
     writeLeafValue(value, context, target);
     return undefined;
   }
 
-  if (objectKind(meta) === "value") {
+  if (fieldObjectKind(field) === "value") {
     if (!isRecord(value)) {
       writeLeafValue(value, context, target);
       return undefined;
     }
-    normalizeValueObjectWithMeta(value, context, meta.graphQLType, target);
+    normalizeValueObjectWithContract(value, context, typeName, target);
     return undefined;
   }
 
   if (isEntityObject(value)) {
-    const ref = normalizeEntityWithMeta(value, context, meta.graphQLType);
+    const ref = normalizeEntityWithContract(value, context, typeName);
     writeEntry(store.slots, slotKey, ref, expires);
     clearSlotIdentities(store.slots, slotKey);
     if (ownerRef && fieldSteps.length > 0) {
@@ -140,23 +155,23 @@ function normalizeValueWithMeta(
   return normalizeValue(value, context, slotKey);
 }
 
-function normalizeEntityWithMeta(
+function normalizeEntityWithContract(
   entity: Record<string, unknown>,
-  context: MetadataNormalizeContext,
+  context: SchemaNormalizeContext,
   fallbackType: string,
 ): EntityRef {
   const typeName = typeof entity["__typename"] === "string" ? entity["__typename"] : fallbackType;
   const ref = context.entityRefs.entity(typeName, String(entity["id"]));
   const typeFields =
-    context.metadata.types?.[typeName] ?? context.metadata.types?.[fallbackType] ?? {};
+    context.schema.objects[typeName]?.fields ?? context.schema.objects[fallbackType]?.fields ?? {};
 
   for (const [key, value] of Object.entries(entity)) {
     const step: SelectionStep = { field: key };
-    const meta = typeFields[key];
-    if (meta) {
-      normalizeValueWithMeta(
+    const field = typeFields[key];
+    if (field) {
+      normalizeValueWithContract(
         value,
-        meta,
+        field,
         context,
         ownerTarget(entityRelationKey(ref, step), ref, [step]),
       );
@@ -174,20 +189,20 @@ function normalizeEntityWithMeta(
   return ref;
 }
 
-function normalizeValueObjectWithMeta(
+function normalizeValueObjectWithContract(
   value: Record<string, unknown>,
-  context: MetadataNormalizeContext,
+  context: SchemaNormalizeContext,
   typeName: string,
   target: NormalizeTarget,
 ): void {
-  const typeFields = context.metadata.types?.[typeName] ?? {};
+  const typeFields = context.schema.objects[typeName]?.fields ?? {};
   for (const [key, item] of Object.entries(value)) {
     const step: SelectionStep = { field: key };
     const nextSteps = [...target.fieldSteps, step];
-    const meta = typeFields[key];
+    const field = typeFields[key];
     const nextTarget = ownerTarget(`${target.slotKey}.${key}`, target.ownerRef, nextSteps);
-    if (meta) {
-      normalizeValueWithMeta(item, meta, context, nextTarget);
+    if (field) {
+      normalizeValueWithContract(item, field, context, nextTarget);
       continue;
     }
     writeLeafValue(item, context, nextTarget);
@@ -320,13 +335,6 @@ function clearEntityFieldPrefix(
       deleteEntry(fields, key);
     }
   }
-}
-
-function objectKind(meta: PlannerFieldMetadata): "entity" | "value" {
-  if (meta.targetObjectKind) {
-    return meta.targetObjectKind;
-  }
-  return meta.returnsEntity === false ? "value" : "entity";
 }
 
 function isFieldValue(value: unknown): boolean {

@@ -1,13 +1,14 @@
 import type {
   GraphDataAddress,
   EntityRef,
-  GraphDataStore,
-  PlannerMetadata,
+  GQLensSchemaContract,
+  GraphDataRuntimeStore,
   SelectionPath,
   SelectionStep,
 } from "../types";
 import { fieldStepForPath, isListIdentityStep } from "./address";
 import { isExpiresFresh } from "./store";
+import { fieldTypeName, queryFieldContract } from "../schema";
 
 interface OwnerResolution {
   readonly value: EntityRef | null | undefined;
@@ -21,9 +22,9 @@ interface SlotSnapshot<T> {
 }
 
 export function isSelectionFresh(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   path: SelectionPath,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): boolean {
   if (path.steps.length === 0) {
     return false;
@@ -34,10 +35,10 @@ export function isSelectionFresh(
   }
 
   if (isListIdentityStep(last)) {
-    return isListPathFresh(store, path, metadata);
+    return isListPathFresh(store, path, schema);
   }
 
-  const owner = resolveOwner(store, path, metadata);
+  const owner = resolveOwner(store, path, schema);
   if (owner.value === null) {
     return owner.fresh;
   }
@@ -55,9 +56,9 @@ export function isSelectionFresh(
 }
 
 function isListPathFresh(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   path: SelectionPath,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): boolean {
   const relationStep = path.steps[path.steps.length - 2];
   const identityStep = path.steps[path.steps.length - 1];
@@ -74,7 +75,7 @@ function isListPathFresh(
     );
   }
 
-  const owner = resolveOwnerForSteps(store, path.root, relationSteps.slice(0, -1), metadata);
+  const owner = resolveOwnerForSteps(store, path.root, relationSteps.slice(0, -1), schema);
   if (owner.value === null) {
     return owner.fresh;
   }
@@ -97,18 +98,18 @@ function isListPathFresh(
 }
 
 function resolveOwner(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   path: SelectionPath,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): OwnerResolution {
-  return resolveOwnerForSteps(store, path.root, path.steps.slice(0, -1), metadata);
+  return resolveOwnerForSteps(store, path.root, path.steps.slice(0, -1), schema);
 }
 
 function resolveOwnerForSteps(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   root: string,
   steps: readonly SelectionStep[],
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): OwnerResolution {
   let ref: EntityRef | undefined;
   let fresh = true;
@@ -119,7 +120,7 @@ function resolveOwnerForSteps(
     walked.push(step);
 
     if (step.typeCondition) {
-      if (!ref || !matchesRefTypeCondition(ref, step.typeCondition, metadata)) {
+      if (!ref || !matchesRefTypeCondition(ref, step.typeCondition, schema)) {
         return { value: null, fresh, fieldStartIndex: index + 1 };
       }
       continue;
@@ -140,7 +141,7 @@ function resolveOwnerForSteps(
         continue;
       }
 
-      const typeName = metadata?.roots?.[step.field]?.graphQLType;
+      const typeName = fieldTypeName(queryFieldContract(schema, step.field));
       const id = step.args?.["id"];
       if (typeName && id !== undefined) {
         ref = store.entity(typeName, String(id));
@@ -178,7 +179,7 @@ function resolveOwnerForSteps(
 }
 
 function isListAddressFresh(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   address: GraphDataAddress,
   identityField: string | undefined,
 ): boolean {
@@ -199,7 +200,7 @@ function isListAddressFresh(
   return relation.value === null ? relation.fresh : false;
 }
 
-function readAddress<T>(store: GraphDataStore, address: GraphDataAddress): SlotSnapshot<T> {
+function readAddress<T>(store: GraphDataRuntimeStore, address: GraphDataAddress): SlotSnapshot<T> {
   const entry = store.peek<T | undefined>(address);
   if (!entry) {
     return { value: undefined, fresh: false };
@@ -218,10 +219,10 @@ function isFreshEntry(entry: { readonly expires: number }): boolean {
 function matchesRefTypeCondition(
   ref: EntityRef,
   typeCondition: string,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): boolean {
   return (
     ref.type === typeCondition ||
-    (metadata?.types?.[typeCondition]?.["__typename"]?.possibleTypes?.includes(ref.type) ?? false)
+    (schema?.objects[typeCondition]?.possibleTypes?.includes(ref.type) ?? false)
   );
 }

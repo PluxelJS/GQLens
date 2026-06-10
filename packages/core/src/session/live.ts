@@ -2,7 +2,7 @@ import { createSelectionCollector } from "../collector";
 import { writeOperationResult } from "../cache/materialize";
 import { applyInvalidations } from "../invalidation";
 import { createSignal } from "../signal";
-import type { GraphDataStore, QuerySessionConfig } from "../types";
+import type { GraphDataRuntimeStore, GraphDataStore, QuerySessionConfig } from "../types";
 import type { LiveSubscriber } from "../transport";
 import { createPlanCache, operationKey, planCached } from "./operation-cache";
 import type { QuerySession } from "./types";
@@ -17,8 +17,9 @@ export interface LiveQuerySessionOptions extends QuerySessionConfig {
 
 export function createLiveQuerySession(options: LiveQuerySessionOptions): QuerySession {
   const { store, subscriber } = options;
+  const runtimeStore = store as GraphDataRuntimeStore;
   const ttl = options.ttl ?? 0;
-  const metadata = options.metadata;
+  const schema = options.schema;
   const collector = createSelectionCollector();
   const loading = createSignal(false);
   const error = createSignal<Error | null>(null);
@@ -46,7 +47,7 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
         return;
       }
 
-      const operation = planCached(selectionPlanCache, paths, "query", metadata);
+      const operation = planCached(selectionPlanCache, paths, "query", schema);
       const key = operationKey(operation);
       const forced = forceNext;
       forceNext = false;
@@ -63,7 +64,7 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
         unsubscribe = subscriber(
           operation,
           (data) => {
-            writeOperationResult(store, data, operation.selections, ttl, metadata);
+            writeOperationResult(runtimeStore, data, operation.selections, ttl, schema);
             loading(false);
           },
           (reason) => {
@@ -127,7 +128,7 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
     },
 
     invalidate(specs) {
-      applyInvalidations(store, specs, metadata);
+      applyInvalidations(store, specs, schema);
       schedule(true);
     },
   };

@@ -10,7 +10,13 @@ import {
   type SelectionPath,
   type SelectionStep,
 } from "@gqlens/core";
-import { cacheField, cacheSlot, isCacheSlotFresh, peekCacheSlot } from "./cache-helpers";
+import {
+  cacheField,
+  cacheSlot,
+  isCacheSlotFresh,
+  peekCacheSlot,
+  schemaContract,
+} from "./cache-helpers";
 
 const p = (steps: SelectionStep[]): SelectionPath => ({
   root: "Query",
@@ -156,18 +162,18 @@ describe("QuerySession", () => {
           { __typename: "Post", id: "10", title: "Hello" },
         ],
       }),
-      metadata: {
+      schema: schemaContract({
         roots: {
           search: {
             returnsEntity: true,
-            returnsList: true,
+            cardinality: "list",
             graphQLType: "SearchResult",
             isAbstract: true,
             possibleTypes: ["User", "Post"],
             args: { text: "String!" },
           },
         },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -212,16 +218,16 @@ describe("QuerySession", () => {
 
   test("cache-first skips fetch when a selected entity field is fresh", async () => {
     const cache = createGraphDataStore();
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Alice" } });
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -246,7 +252,7 @@ describe("QuerySession", () => {
           status: { online: true, source: { kind: "hmr" } },
         },
       }),
-      metadata: valueObjectMetadata(),
+      schema: valueObjectSchema(),
     });
     const reader = session.mount();
 
@@ -270,7 +276,7 @@ describe("QuerySession", () => {
 
   test("schedule clears embedded value object leaves when the value becomes null", async () => {
     const cache = createGraphDataStore();
-    cache.normalize(
+    cache.writeGraphQLResult(
       {
         user: {
           __typename: "User",
@@ -278,10 +284,9 @@ describe("QuerySession", () => {
           status: { online: true, source: { kind: "hmr" } },
         },
       },
-      0,
-      valueObjectMetadata(),
+      { schema: valueObjectSchema() },
     );
-    cache.normalize(
+    cache.writeGraphQLResult(
       {
         user: {
           __typename: "User",
@@ -289,8 +294,7 @@ describe("QuerySession", () => {
           status: null,
         },
       },
-      0,
-      valueObjectMetadata(),
+      { schema: valueObjectSchema() },
     );
 
     expect(cacheField(cache, cache.entity("User", "1"), "status.online").sig()).toBeUndefined();
@@ -301,7 +305,7 @@ describe("QuerySession", () => {
 
   test("cache-first skips fetch when a selected embedded value object leaf is fresh", async () => {
     const cache = createGraphDataStore();
-    cache.normalize(
+    cache.writeGraphQLResult(
       {
         user: {
           __typename: "User",
@@ -309,15 +313,14 @@ describe("QuerySession", () => {
           status: { online: true, source: { kind: "hmr" } },
         },
       },
-      0,
-      valueObjectMetadata(),
+      { schema: valueObjectSchema() },
     );
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: valueObjectMetadata(),
+      schema: valueObjectSchema(),
     });
     const reader = session.mount();
 
@@ -338,43 +341,42 @@ describe("QuerySession", () => {
 
   test("cache-first skips fetch when a root value object list ids slot is fresh", async () => {
     const cache = createGraphDataStore();
-    const metadata = {
+    const schema = schemaContract({
       roots: {
         pluginStatus: {
           returnsEntity: false,
           graphQLType: "PluginStatusOverview",
-          targetObjectKind: "value",
+          objectKind: "value",
         },
       },
       types: {
         PluginStatusOverview: {
           plugins: {
             returnsEntity: true,
-            returnsList: true,
+            cardinality: "list",
             graphQLType: "Plugin",
-            targetObjectKind: "entity",
+            objectKind: "entity",
           },
         },
         Plugin: {
           name: { returnsEntity: false },
         },
       },
-    } as const;
-    cache.normalize(
+    });
+    cache.writeGraphQLResult(
       {
         pluginStatus: {
           plugins: [{ __typename: "Plugin", id: "core", name: "core" }],
         },
       },
-      0,
-      metadata,
+      { schema },
     );
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata,
+      schema,
     });
     const reader = session.mount();
 
@@ -391,12 +393,12 @@ describe("QuerySession", () => {
 
   test("cache-first skips fetch when an entity-owned value object list ids slot is fresh", async () => {
     const cache = createGraphDataStore();
-    const metadata = {
+    const schema = schemaContract({
       roots: {
         plugin: {
           returnsEntity: true,
           graphQLType: "Plugin",
-          targetObjectKind: "entity",
+          objectKind: "entity",
           args: { id: "ID!" },
         },
       },
@@ -405,21 +407,21 @@ describe("QuerySession", () => {
           detail: {
             returnsEntity: false,
             graphQLType: "PluginDetail",
-            targetObjectKind: "value",
+            objectKind: "value",
           },
           name: { returnsEntity: false },
         },
         PluginDetail: {
           dependencies: {
             returnsEntity: true,
-            returnsList: true,
+            cardinality: "list",
             graphQLType: "Plugin",
-            targetObjectKind: "entity",
+            objectKind: "entity",
           },
         },
       },
-    } as const;
-    cache.normalize(
+    });
+    cache.writeGraphQLResult(
       {
         plugin: {
           __typename: "Plugin",
@@ -430,15 +432,14 @@ describe("QuerySession", () => {
           },
         },
       },
-      0,
-      metadata,
+      { schema },
     );
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata,
+      schema,
     });
     const reader = session.mount();
 
@@ -462,28 +463,28 @@ describe("QuerySession", () => {
 
   test("cache-first fetches value object list ids only once after normalization", async () => {
     const cache = createGraphDataStore();
-    const metadata = {
+    const schema = schemaContract({
       roots: {
         pluginStatus: {
           returnsEntity: false,
           graphQLType: "PluginStatusOverview",
-          targetObjectKind: "value",
+          objectKind: "value",
         },
       },
       types: {
         PluginStatusOverview: {
           plugins: {
             returnsEntity: true,
-            returnsList: true,
+            cardinality: "list",
             graphQLType: "Plugin",
-            targetObjectKind: "entity",
+            objectKind: "entity",
           },
         },
         Plugin: {
           name: { returnsEntity: false },
         },
       },
-    } as const;
+    });
     const fetcher = vi.fn<Fetcher>(async () => ({
       pluginStatus: {
         plugins: [{ __typename: "Plugin", id: "core", name: "core" }],
@@ -493,7 +494,7 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata,
+      schema,
     });
     const reader = session.mount();
     const selection = {
@@ -547,10 +548,10 @@ describe("QuerySession", () => {
       fetcher,
       policy: "cache-first",
       ttl: 30000,
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
     const selection = {
@@ -575,19 +576,19 @@ describe("QuerySession", () => {
 
   test("cache-first treats non-matching inline fragments as fresh once the owner type is known", async () => {
     const cache = createGraphDataStore();
-    cache.normalize({ pet: { __typename: "Dog", id: "2", barks: true } });
+    cache.writeGraphQLResult({ pet: { __typename: "Dog", id: "2", barks: true } });
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
         types: {
           Pet: { __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] } },
           Cat: { meows: { returnsEntity: false } },
         },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -613,10 +614,10 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -643,10 +644,10 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -663,7 +664,7 @@ describe("QuerySession", () => {
 
   test("cache-first refetches when a selected entity field is stale", async () => {
     const cache = createGraphDataStore();
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Alice" } });
     cache.invalidate({
       kind: "entity",
       ref: cache.entity("User", "1"),
@@ -676,10 +677,10 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -703,10 +704,10 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-and-network",
-      metadata: {
+      schema: schemaContract({
         roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
     const selection = [{ field: "viewer" }, { field: "name" }];
@@ -723,10 +724,10 @@ describe("QuerySession", () => {
 
   test("cache-and-network repeats fresh operations after completed ttl expires", async () => {
     const cache = createGraphDataStore();
-    const metadata = {
+    const schema = schemaContract({
       roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
       types: { User: { name: { returnsEntity: false } } },
-    } as const;
+    });
     const fetcher = vi
       .fn<Fetcher>()
       .mockResolvedValueOnce({
@@ -740,7 +741,7 @@ describe("QuerySession", () => {
       fetcher,
       policy: "cache-and-network",
       ttl: 1,
-      metadata,
+      schema,
     });
     const reader = session.mount();
     const selection = [{ field: "viewer" }, { field: "name" }];
@@ -749,10 +750,9 @@ describe("QuerySession", () => {
     session.schedule();
     await nextMacrotask();
     await new Promise((resolve) => setTimeout(resolve, 5));
-    cache.normalize(
+    cache.writeGraphQLResult(
       { viewer: { __typename: "User", id: "1", name: "Externally Fresh Alice" } },
-      30_000,
-      metadata,
+      { ttl: 30_000, schema },
     );
     session.schedule();
     await nextMacrotask();
@@ -770,10 +770,10 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -799,10 +799,10 @@ describe("QuerySession", () => {
         return { viewer: { __typename: "User", id: "1", name: names[call] } };
       },
       policy: "cache-and-network",
-      metadata: {
+      schema: schemaContract({
         roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
     const path = [{ field: "viewer" }, { field: "name" }];
@@ -827,7 +827,7 @@ describe("QuerySession", () => {
 
   test("invalidate marks fields stale and schedules active demand", async () => {
     const cache = createGraphDataStore();
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Alice" } });
     const fetcher = vi.fn<Fetcher>(async () => ({
       user: { __typename: "User", id: "1", name: "Fresh Alice" },
     }));
@@ -835,10 +835,10 @@ describe("QuerySession", () => {
       store: cache,
       fetcher,
       policy: "cache-first",
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -887,10 +887,10 @@ describe("QuerySession", () => {
           },
         },
       ],
-      {
+      schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     );
 
     expect(name.expires).toBeLessThan(Date.now());
@@ -918,7 +918,7 @@ describe("QuerySession", () => {
           },
         },
       ],
-      valueObjectMetadata(),
+      valueObjectSchema(),
     );
 
     expect(status.expires).toBeLessThan(Date.now());
@@ -940,14 +940,14 @@ describe("QuerySession", () => {
           },
         },
       ],
-      {
+      schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: {
           User: {
-            posts: { returnsEntity: true, returnsList: true, graphQLType: "Post" },
+            posts: { returnsEntity: true, cardinality: "list", graphQLType: "Post" },
           },
         },
-      },
+      }),
     );
 
     expect(posts.expires).toBeLessThan(Date.now());
@@ -989,10 +989,10 @@ describe("QuerySession", () => {
     const session = createLiveQuerySession({
       store: cache,
       subscriber: subscribe,
-      metadata: {
+      schema: schemaContract({
         roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -1087,12 +1087,12 @@ describe("QuerySession", () => {
           ],
         },
       }),
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: {
-          User: { posts: { returnsEntity: true, returnsList: true, graphQLType: "Post" } },
+          User: { posts: { returnsEntity: true, cardinality: "list", graphQLType: "Post" } },
         },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -1115,13 +1115,13 @@ describe("QuerySession", () => {
     const session = createQuerySession({
       store: cache,
       fetcher: async () => ({ pet: { __typename: "Cat", id: "1", meows: true } }),
-      metadata: {
+      schema: schemaContract({
         roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
         types: {
           Pet: { __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] } },
           Cat: { meows: { returnsEntity: false } },
         },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -1188,7 +1188,7 @@ describe("QuerySession", () => {
         new Promise((resolve) => {
           resolvers.push(resolve);
         }),
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: {
           User: {
@@ -1196,7 +1196,7 @@ describe("QuerySession", () => {
             avatar: { returnsEntity: false },
           },
         },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -1238,7 +1238,7 @@ describe("QuerySession", () => {
         new Promise((resolve, reject) => {
           deferred.push({ resolve, reject });
         }),
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: {
           User: {
@@ -1246,7 +1246,7 @@ describe("QuerySession", () => {
             avatar: { returnsEntity: false },
           },
         },
-      },
+      }),
     });
     const reader = session.mount();
 
@@ -1283,13 +1283,13 @@ function nextMacrotask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function valueObjectMetadata() {
-  return {
+function valueObjectSchema() {
+  return schemaContract({
     roots: {
       user: {
         returnsEntity: true,
         graphQLType: "User",
-        targetObjectKind: "entity",
+        objectKind: "entity",
         args: { id: "ID!" },
       },
     },
@@ -1298,7 +1298,7 @@ function valueObjectMetadata() {
         status: {
           returnsEntity: false,
           graphQLType: "UserStatus",
-          targetObjectKind: "value",
+          objectKind: "value",
         },
       },
       UserStatus: {
@@ -1306,12 +1306,12 @@ function valueObjectMetadata() {
         source: {
           returnsEntity: false,
           graphQLType: "StatusSource",
-          targetObjectKind: "value",
+          objectKind: "value",
         },
       },
       StatusSource: {
         kind: { returnsEntity: false },
       },
     },
-  } as const;
+  });
 }

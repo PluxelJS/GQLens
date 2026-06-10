@@ -1,7 +1,7 @@
 import { selectionKey } from "../keys";
 import { plan } from "../planner";
 import { SieveCache } from "../sieve-cache";
-import type { GraphQLOperation, PlannerMetadata, SelectionPath } from "../types";
+import type { GQLensSchemaContract, GraphQLOperation, SelectionPath } from "../types";
 
 const maxPlanCacheEntries = 128;
 
@@ -20,14 +20,14 @@ export function planCached(
   cache: SieveCache<string, GraphQLOperation>,
   paths: readonly SelectionPath[],
   operationType: string,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): GraphQLOperation {
   const key = planCacheKey(paths, operationType);
   const cached = cache.get(key);
   if (cached) {
     return cloneOperation(cached);
   }
-  const operation = plan(paths, operationType, metadata);
+  const operation = plan(paths, operationType, schema);
   cache.set(key, operation);
   return cloneOperation(operation);
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { plan, type SelectionPath, type SelectionStep } from "@gqlens/core";
+import { schemaContract } from "./cache-helpers";
 
 const p = (steps: SelectionStep[]): SelectionPath => ({
   root: "Query",
@@ -78,11 +79,15 @@ describe("Planner", () => {
     expect(query).toContain(": Boolean");
   });
 
-  test("uses schema metadata for variable types", () => {
-    const op = plan([p([{ field: "user", args: { id: "1" } }, { field: "name" }])], "query", {
-      roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
-      types: { User: { name: { returnsEntity: false } } },
-    });
+  test("uses schema contract for variable types", () => {
+    const op = plan(
+      [p([{ field: "user", args: { id: "1" } }, { field: "name" }])],
+      "query",
+      schemaContract({
+        roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
+        types: { User: { name: { returnsEntity: false } } },
+      }),
+    );
 
     expect(op.query).toContain("$v0: ID!");
   });
@@ -95,12 +100,12 @@ describe("Planner", () => {
         p([{ field: "search", args: { text: "1" } }, { field: "summary" }]),
       ],
       "query",
-      {
+      schemaContract({
         roots: {
           node: { returnsEntity: true, graphQLType: "Node", args: { id: "ID!" } },
           search: { returnsEntity: true, graphQLType: "SearchResult", args: { text: "String!" } },
         },
-      },
+      }),
     );
 
     expect(Object.keys(op.variables)).toHaveLength(2);
@@ -110,16 +115,20 @@ describe("Planner", () => {
   });
 
   test("treats list ids as an accessor pseudo-field", () => {
-    const op = plan([p([{ field: "todos", args: { done: false } }, { field: "ids" }])], "query", {
-      roots: {
-        todos: {
-          returnsEntity: true,
-          returnsList: true,
-          graphQLType: "Todo",
-          args: { done: "Boolean" },
+    const op = plan(
+      [p([{ field: "todos", args: { done: false } }, { field: "ids" }])],
+      "query",
+      schemaContract({
+        roots: {
+          todos: {
+            returnsEntity: true,
+            cardinality: "list",
+            graphQLType: "Todo",
+            args: { done: "Boolean" },
+          },
         },
-      },
-    });
+      }),
+    );
 
     expect(op.query).toContain("todos(done:");
     expect(op.query).toContain("__typename");
@@ -130,18 +139,18 @@ describe("Planner", () => {
     const op = plan(
       [p([{ field: "search", args: { text: "milk" } }, { field: "refs" }])],
       "query",
-      {
+      schemaContract({
         roots: {
           search: {
             returnsEntity: true,
-            returnsList: true,
+            cardinality: "list",
             graphQLType: "SearchResult",
             isAbstract: true,
             possibleTypes: ["User", "Post"],
             args: { text: "String!" },
           },
         },
-      },
+      }),
     );
 
     expect(op.query).toContain("search(text:");
@@ -161,13 +170,13 @@ describe("Planner", () => {
         ]),
       ],
       "query",
-      {
+      schemaContract({
         roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
         types: {
           Pet: { __typename: { returnsEntity: false, possibleTypes: ["Cat", "Dog"] } },
           Cat: { meows: { returnsEntity: false } },
         },
-      },
+      }),
     );
 
     expect(op.query).toContain("pet(id:");
@@ -182,10 +191,10 @@ describe("Planner", () => {
     const op = plan(
       [p([{ field: "user", args: { id: { __gqlensVariable: "id" } } }, { field: "name" }])],
       "query",
-      {
+      schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     );
 
     expect(op.query).toContain("user(id: $id)");
@@ -228,7 +237,7 @@ describe("Planner", () => {
   });
 
   test("renders deeply nested inline fragments from $on chains", () => {
-    const metadata = {
+    const schema = schemaContract({
       roots: {
         node: { returnsEntity: true, graphQLType: "Node", args: { id: "ID!" } },
       },
@@ -244,7 +253,7 @@ describe("Planner", () => {
         },
         C: { name: { returnsEntity: false } },
       },
-    } as Parameters<typeof plan>[2];
+    });
 
     const op = plan(
       [
@@ -259,7 +268,7 @@ describe("Planner", () => {
         ]),
       ],
       "query",
-      metadata,
+      schema,
     );
 
     expect(op.query).toContain("node(id:");

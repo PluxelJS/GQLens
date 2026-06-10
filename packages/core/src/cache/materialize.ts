@@ -1,10 +1,10 @@
 import type {
   GraphDataAddress,
   EntityRef,
-  GraphDataStore,
+  GQLensSchemaContract,
+  GraphDataRuntimeStore,
   PlannedSelectionPath,
   PlannedSelectionStep,
-  PlannerMetadata,
   SelectionStep,
 } from "../types";
 import { isEntityObject, isRecord } from "../guards";
@@ -19,36 +19,36 @@ import {
 import { expiresAt } from "./store";
 
 interface SlotSyncContext {
-  readonly store: GraphDataStore;
+  readonly store: GraphDataRuntimeStore;
   readonly expires: number;
-  readonly metadata: PlannerMetadata | undefined;
+  readonly schema: GQLensSchemaContract | undefined;
   readonly seen: Set<string>;
 }
 
 export function writeOperationResult(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   data: unknown,
   selections: readonly PlannedSelectionPath[],
   ttl: number,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): void {
   const result = readGraphQLData(data);
-  store.normalize(result, ttl, metadata);
-  syncSlots(store, result, selections, ttl, metadata);
+  store.writeGraphQLResult(result, { ttl, schema });
+  syncSlots(store, result, selections, ttl, schema);
 }
 
 function syncSlots(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   data: Record<string, unknown>,
   paths: readonly PlannedSelectionPath[],
   ttl: number,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): void {
   const expires = expiresAt(ttl);
   const context: SlotSyncContext = {
     store,
     expires,
-    metadata,
+    schema,
     seen: new Set<string>(),
   };
 
@@ -62,7 +62,7 @@ function syncPathSlots(
   data: Record<string, unknown>,
   path: PlannedSelectionPath,
 ): void {
-  const { store, expires, metadata, seen } = context;
+  const { store, expires, schema, seen } = context;
   let current: unknown = data;
   const originalSteps: PlannedSelectionStep[] = [];
   let ownerRef: EntityRef | undefined;
@@ -78,7 +78,7 @@ function syncPathSlots(
     }
 
     if (step.typeCondition) {
-      if (!matchesTypeCondition(current, step.typeCondition, metadata)) {
+      if (!matchesTypeCondition(current, step.typeCondition, schema)) {
         return;
       }
       continue;
@@ -241,7 +241,7 @@ function writeRelationSlot(
 }
 
 function clearRelationSlotSuffix(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   ref: EntityRef | undefined,
   step: SelectionStep,
   suffix: GraphDataSlotSuffix,
@@ -252,7 +252,7 @@ function clearRelationSlotSuffix(
 }
 
 function writeGraphDataAddress<T>(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   address: GraphDataAddress,
   value: T,
   expires: number,
@@ -262,7 +262,7 @@ function writeGraphDataAddress<T>(
   entry.expires = expires;
 }
 
-function clearGraphDataAddress(store: GraphDataStore, address: GraphDataAddress): void {
+function clearGraphDataAddress(store: GraphDataRuntimeStore, address: GraphDataAddress): void {
   const entry = store.peek(address);
   if (!entry) {
     return;
@@ -288,7 +288,7 @@ function relationGraphDataAddress(
 }
 
 function toSlotValue(
-  store: GraphDataStore,
+  store: GraphDataRuntimeStore,
   value: unknown,
   expectsListIdentity: boolean,
 ): EntityRef | readonly EntityRef[] | null | undefined {
@@ -307,7 +307,7 @@ function toSlotValue(
   return undefined;
 }
 
-function entityFrom(store: GraphDataStore, value: Record<string, unknown>): EntityRef {
+function entityFrom(store: GraphDataRuntimeStore, value: Record<string, unknown>): EntityRef {
   return store.entity(String(value["__typename"]), String(value["id"]));
 }
 
@@ -323,7 +323,7 @@ function isLeafValue(value: unknown): value is string | number | boolean | null 
 function matchesTypeCondition(
   value: Record<string, unknown>,
   typeCondition: string,
-  metadata: PlannerMetadata | undefined,
+  schema: GQLensSchemaContract | undefined,
 ): boolean {
   const typename = value["__typename"];
   if (typename === typeCondition) {
@@ -332,7 +332,5 @@ function matchesTypeCondition(
   if (typeof typename !== "string") {
     return false;
   }
-  return (
-    metadata?.types?.[typeCondition]?.["__typename"]?.possibleTypes?.includes(typename) ?? false
-  );
+  return schema?.objects[typeCondition]?.possibleTypes?.includes(typename) ?? false;
 }

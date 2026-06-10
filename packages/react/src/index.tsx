@@ -13,6 +13,7 @@ import {
   applyInvalidations,
   bindSelection,
   createFetchTransport,
+  GQLensError,
   createLiveQuerySession,
   createLiveTransport,
   createMutationRunner,
@@ -23,9 +24,9 @@ import {
   type Fetcher,
   type LiveSubscriber,
   type MutationOptions,
-  type MutationSource,
+  type MutationDefinition,
   type GraphDataStore,
-  type PlannerMetadata,
+  type GQLensSchemaContract,
   type QuerySession,
   type QuerySessionConfig,
   type QueryDefaults,
@@ -115,7 +116,7 @@ interface GQLensRuntime {
   readonly fetcher: Fetcher;
   session(config: SessionRequest): SessionLease;
   liveSession(config: SessionRequest): SessionLease;
-  invalidate(specs: readonly GraphDataInvalidation[], metadata?: PlannerMetadata): void;
+  invalidate(specs: readonly GraphDataInvalidation[], schema?: GQLensSchemaContract): void;
 }
 
 const ConfigContext = createContext<GQLensRuntime | null>(null);
@@ -152,8 +153,8 @@ export function GQLensProvider(props: {
         return liveSessions.acquire(config);
       },
 
-      invalidate(specs: readonly GraphDataInvalidation[], metadata?: PlannerMetadata): void {
-        applyInvalidations(store, specs, metadata);
+      invalidate(specs: readonly GraphDataInvalidation[], schema?: GQLensSchemaContract): void {
+        applyInvalidations(store, specs, schema);
         for (const session of sessions.values()) {
           session.refetch();
         }
@@ -192,11 +193,11 @@ function useSessionState(mode: "query" | "live", config: QueryConfig = {}): Sess
   const global = useConfig();
   const policy = config.policy ?? global.queryDefaults.policy ?? "cache-and-network";
   const ttl = config.ttl ?? global.queryDefaults.ttl ?? 0;
-  const metadata = config.metadata;
+  const schema = config.schema;
   const scope = useSessionScope(config.scope);
   const lease = useMemo(
-    () => (mode === "live" ? global.liveSession : global.session)({ policy, ttl, metadata, scope }),
-    [global, metadata, mode, policy, scope, ttl],
+    () => (mode === "live" ? global.liveSession : global.session)({ policy, ttl, schema, scope }),
+    [global, mode, policy, schema, scope, ttl],
   );
   useEffect(() => lease.release, [lease]);
 
@@ -233,22 +234,22 @@ export function usePreparedQuery(
 }
 
 export function useMutation<TInput extends Record<string, unknown>, TData>(
-  mutation: MutationSource<TInput, TData>,
-): (input: TInput & MutationOptions) => Promise<TData> {
+  definition: MutationDefinition<TInput, TData>,
+): (input: TInput, options?: MutationOptions) => Promise<TData> {
   const global = useConfig();
   const runMutation = useMemo(
     () =>
       createMutationRunner({
         store: global.store,
-        mutation,
+        definition,
         fetcher: global.fetcher,
         invalidate: global.invalidate,
       }),
-    [global.store, global.fetcher, global.invalidate, mutation],
+    [global.store, global.fetcher, global.invalidate, definition],
   );
 
   return useCallback(
-    async (input: TInput & MutationOptions): Promise<TData> => runMutation(input),
+    async (input: TInput, options?: MutationOptions): Promise<TData> => runMutation(input, options),
     [runMutation],
   );
 }
@@ -256,7 +257,10 @@ export function useMutation<TInput extends Record<string, unknown>, TData>(
 function useConfig(): GQLensRuntime {
   const config = useContext(ConfigContext);
   if (!config) {
-    throw new Error("GQLens hooks must be used within <GQLensProvider>");
+    throw new GQLensError({
+      code: "PROVIDER_MISSING",
+      message: "GQLens hooks must be used within <GQLensProvider>.",
+    });
   }
   return config;
 }

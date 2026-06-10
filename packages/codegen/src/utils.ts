@@ -11,6 +11,7 @@ import {
   isScalarType,
   isUnionType,
 } from "graphql";
+import { GQLensCodegenError } from "./error";
 
 export type ObjectKind = "entity" | "value";
 
@@ -77,9 +78,11 @@ export function validateEntitySchemaContract(schema: GraphQLSchema): void {
   }
 
   if (errors.length > 0) {
-    throw new Error(
-      `Invalid GQLens schema contract:\n${errors.map((item) => `- ${item}`).join("\n")}`,
-    );
+    throw new GQLensCodegenError({
+      code: "INVALID_SCHEMA_CONTRACT",
+      message: `Invalid GQLens schema contract:\n${errors.map((item) => `- ${item}`).join("\n")}`,
+      details: { errors },
+    });
   }
 }
 

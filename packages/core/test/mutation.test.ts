@@ -1,6 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 import { createMutationRunner, createGraphDataStore, type Fetcher } from "@gqlens/core";
-import { cacheField, cacheSlot, peekCacheField, peekCacheSlot } from "./cache-helpers";
+import {
+  cacheField,
+  cacheSlot,
+  peekCacheField,
+  peekCacheSlot,
+  schemaContract,
+} from "./cache-helpers";
 
 // ─── Mutation Runner ───────────────────────────────────────────────────────
 
@@ -13,7 +19,7 @@ describe("Mutation runner", () => {
     const mutate = createMutationRunner({
       store: cache,
       fetcher,
-      mutation: {
+      definition: {
         operationName: "renameUser",
         query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
         variables: (input: { id: string }) => ({ id: input.id }),
@@ -44,27 +50,30 @@ describe("Mutation runner", () => {
     const mutate = createMutationRunner({
       store: cache,
       fetcher: async () => ({}),
-      mutation: async () => {
+      definition: async () => {
         throw new Error("nope");
       },
     });
 
     await expect(
-      mutate({
-        optimistic(c) {
-          const field = cacheField(c, c.entity("User", "1"), "name");
-          field.sig("Optimistic");
-          field.expires = 999;
-          cacheField(c, c.entity("User", "1"), "avatar").sig("optimistic.png");
-        },
-        invalidates: [
-          {
-            kind: "entity",
-            ref: { type: "User", id: "1" },
-            paths: [[{ field: "name" }], [{ field: "avatar" }]],
+      mutate(
+        {},
+        {
+          optimistic(c) {
+            const field = cacheField(c, c.entity("User", "1"), "name");
+            field.sig("Optimistic");
+            field.expires = 999;
+            cacheField(c, c.entity("User", "1"), "avatar").sig("optimistic.png");
           },
-        ],
-      }),
+          invalidates: [
+            {
+              kind: "entity",
+              ref: { type: "User", id: "1" },
+              paths: [[{ field: "name" }], [{ field: "avatar" }]],
+            },
+          ],
+        },
+      ),
     ).rejects.toThrow("nope");
 
     expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
@@ -78,18 +87,21 @@ describe("Mutation runner", () => {
     const mutate = createMutationRunner({
       store: cache,
       fetcher: async () => ({}),
-      mutation: async () => {
+      definition: async () => {
         throw new Error("nope");
       },
     });
 
     await expect(
-      mutate({
-        optimistic(c) {
-          cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
-          cacheSlot(c, "User:1.posts.ids").sig(["10"]);
+      mutate(
+        {},
+        {
+          optimistic(c) {
+            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
+            cacheSlot(c, "User:1.posts.ids").sig(["10"]);
+          },
         },
-      }),
+      ),
     ).rejects.toThrow("nope");
 
     expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
@@ -98,23 +110,26 @@ describe("Mutation runner", () => {
 
   test("rolls back optimistic normalize writes on failure", async () => {
     const cache = createGraphDataStore();
-    cache.normalize({ user: { __typename: "User", id: "1", name: "Original" } });
+    cache.writeGraphQLResult({ user: { __typename: "User", id: "1", name: "Original" } });
     const mutate = createMutationRunner({
       store: cache,
       fetcher: async () => ({}),
-      mutation: async () => {
+      definition: async () => {
         throw new Error("nope");
       },
     });
 
     await expect(
-      mutate({
-        optimistic(c) {
-          c.normalize({
-            user: { __typename: "User", id: "1", name: "Optimistic", avatar: "new.png" },
-          });
+      mutate(
+        {},
+        {
+          optimistic(c) {
+            c.writeGraphQLResult({
+              user: { __typename: "User", id: "1", name: "Optimistic", avatar: "new.png" },
+            });
+          },
         },
-      }),
+      ),
     ).rejects.toThrow("nope");
 
     expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
@@ -127,36 +142,39 @@ describe("Mutation runner", () => {
     const mutate = createMutationRunner({
       store: cache,
       fetcher: async () => ({}),
-      mutation: async () => {
+      definition: async () => {
         throw new Error("nope");
       },
-      metadata: {
+      schema: schemaContract({
         roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
         types: { User: { name: { returnsEntity: false } } },
-      },
+      }),
     });
 
     await expect(
-      mutate({
-        optimistic(c) {
-          cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
-        },
-        invalidates: [
-          {
-            kind: "selection",
-            path: {
-              root: "Query",
-              steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
-            },
+      mutate(
+        {},
+        {
+          optimistic(c) {
+            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
           },
-        ],
-      }),
+          invalidates: [
+            {
+              kind: "selection",
+              path: {
+                root: "Query",
+                steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+              },
+            },
+          ],
+        },
+      ),
     ).rejects.toThrow("nope");
 
     expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
   });
 
-  test("uses operation descriptor metadata for selector rollback", async () => {
+  test("uses operation descriptor schema for selector rollback", async () => {
     const cache = createGraphDataStore();
     cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
     const mutate = createMutationRunner({
@@ -164,33 +182,35 @@ describe("Mutation runner", () => {
       fetcher: async () => {
         throw new Error("nope");
       },
-      mutation: {
+      definition: {
         operationName: "renameUser",
         query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
-        metadata: {
+        schema: schemaContract({
           roots: { user: { returnsEntity: true, graphQLType: "User", args: { id: "ID!" } } },
           types: { User: { name: { returnsEntity: false } } },
-        },
+        }),
         variables: (input: { id: string }) => ({ id: input.id }),
       },
     });
 
     await expect(
-      mutate({
-        id: "1",
-        optimistic(c) {
-          cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
-        },
-        invalidates: [
-          {
-            kind: "selection",
-            path: {
-              root: "Query",
-              steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
-            },
+      mutate(
+        { id: "1" },
+        {
+          optimistic(c) {
+            cacheField(c, c.entity("User", "1"), "name").sig("Optimistic");
           },
-        ],
-      }),
+          invalidates: [
+            {
+              kind: "selection",
+              path: {
+                root: "Query",
+                steps: [{ field: "user", args: { id: "1" } }, { field: "name" }],
+              },
+            },
+          ],
+        },
+      ),
     ).rejects.toThrow("nope");
 
     expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Original");
@@ -210,27 +230,34 @@ describe("Mutation runner", () => {
           },
         },
       }),
-      mutation: {
+      definition: {
         operationName: "renameUser",
         query:
           "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name status { online } } }",
         variables: (input: { id: string }) => ({ id: input.id }),
       },
-      metadata: {
+      schema: schemaContract({
+        mutation: {
+          renameUser: {
+            returnsEntity: true,
+            graphQLType: "User",
+            objectKind: "entity",
+          },
+        },
         types: {
           User: {
             name: { returnsEntity: false },
             status: {
               returnsEntity: false,
               graphQLType: "UserStatus",
-              targetObjectKind: "value",
+              objectKind: "value",
             },
           },
           UserStatus: {
             online: { returnsEntity: false },
           },
         },
-      },
+      }),
     });
 
     await mutate({ id: "1" });

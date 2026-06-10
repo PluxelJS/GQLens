@@ -1,5 +1,4 @@
 import type { GraphDataInvalidation, MutationOperation, PreparedSelection } from "@gqlens/core";
-import type { NormalizerEntry } from "@gqlens/core/codegen";
 import {
   api,
   defineInvalidation,
@@ -10,7 +9,6 @@ import {
   type QueryNode,
 } from "./accessor";
 import type { Invalidation } from "./invalidation";
-import { normalizerEntries } from "./normalizer";
 import type * as Types from "./types";
 
 export function readAccessor(q: QueryNode): {
@@ -73,8 +71,6 @@ export const runtimeAccessors: {
 export function refetchQuery(q: ReturnType<typeof useQuery>): void {
   q.refetch();
 }
-
-export const generatedNormalizerEntries: readonly NormalizerEntry[] = normalizerEntries;
 
 export function readPet(pet: PetNode): Types.Pet["name"] | undefined {
   return pet.name;

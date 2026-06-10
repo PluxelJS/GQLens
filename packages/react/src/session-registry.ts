@@ -1,4 +1,4 @@
-import type { PlannerMetadata, QuerySession, QuerySessionConfig } from "@gqlens/core";
+import type { GQLensSchemaContract, QuerySession, QuerySessionConfig } from "@gqlens/core";
 
 export interface SessionRequest extends QuerySessionConfig {
   readonly scope: string;
@@ -14,8 +14,8 @@ export interface SessionRegistry {
   values(): Iterable<QuerySession>;
 }
 
-let nextMetadataId = 0;
-const metadataIds = new WeakMap<PlannerMetadata, number>();
+let nextSchemaId = 0;
+const schemaIds = new WeakMap<GQLensSchemaContract, number>();
 
 export function createSessionRegistry(
   createSession: (config: QuerySessionConfig) => QuerySession,
@@ -55,26 +55,26 @@ export function createSessionRegistry(
 }
 
 function sessionKey(config: SessionRequest): string {
-  return `${config.policy ?? ""}:${config.ttl ?? ""}:${metadataId(config.metadata)}:${config.scope}`;
+  return `${config.policy ?? ""}:${config.ttl ?? ""}:${schemaId(config.schema)}:${config.scope}`;
 }
 
 function querySessionConfig(config: QuerySessionConfig): QuerySessionConfig {
   return {
     policy: config.policy,
     ttl: config.ttl,
-    metadata: config.metadata,
+    schema: config.schema,
   };
 }
 
-function metadataId(metadata: PlannerMetadata | undefined): number {
-  if (!metadata) {
+function schemaId(schema: GQLensSchemaContract | undefined): number {
+  if (!schema) {
     return 0;
   }
-  const existing = metadataIds.get(metadata);
+  const existing = schemaIds.get(schema);
   if (existing) {
     return existing;
   }
-  const id = ++nextMetadataId;
-  metadataIds.set(metadata, id);
+  const id = ++nextSchemaId;
+  schemaIds.set(schema, id);
   return id;
 }

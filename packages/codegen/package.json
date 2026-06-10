@@ -1,7 +1,7 @@
 {
   "name": "@gqlens/codegen",
   "version": "0.1.0",
-  "description": "GQLens schema codegen — generates typed accessors, normalizer metadata, and invalidation specs.",
+  "description": "GQLens schema codegen — generates typed accessors, schema contract, and invalidation specs.",
   "license": "Apache-2.0",
   "files": [
     "dist"

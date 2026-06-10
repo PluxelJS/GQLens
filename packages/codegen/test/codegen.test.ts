@@ -5,12 +5,7 @@ import { generateFiles } from "@gqlens/codegen";
 
 const fixturesRoot = new URL("./fixtures/", import.meta.url);
 const basicFixture = fixtureUrl("basic");
-const generatedFixtureFiles = [
-  "types.ts",
-  "normalizer.ts",
-  "invalidation.ts",
-  "accessor.ts",
-] as const;
+const generatedFixtureFiles = ["types.ts", "invalidation.ts", "accessor.ts"] as const;
 const testSchema = readFixture("schema.graphql");
 const fixtureNames = readdirSync(fixturesRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -45,7 +40,6 @@ describe("@gqlens/codegen", () => {
 
     expect(files).toMatchObject({
       "types.ts": readFixture("types.ts"),
-      "normalizer.ts": readFixture("normalizer.ts"),
       "invalidation.ts": readFixture("invalidation.ts"),
       "accessor.ts": readFixture("accessor.ts"),
     });
@@ -61,11 +55,11 @@ describe("@gqlens/codegen", () => {
     expect(accessor).toContain("user: (args: GQLensArgs<Types.QueryUserArgs>)");
   });
 
-  test("mutation descriptors carry metadata and selected result types", async () => {
+  test("mutation descriptors carry schema contract and selected result types", async () => {
     const files = await generateFiles({ schema: testSchema });
     const accessor = files["accessor.ts"]!;
 
-    expect(accessor).toContain("metadata: schemaMeta.planner");
+    expect(accessor).toContain("schema: gqlensSchema");
     expect(accessor).toContain(
       'MutationOperation<Types.MutationRenameUserArgs, Pick<NonNullable<Types.Mutation["renameUser"]>, "id" | "__typename" | "name" | "avatar" | "online">>',
     );
