@@ -1,6 +1,6 @@
 # 服务端 Schema 设计指南
 
-这份文档记录服务端为了配合 GQLens normalized cache 需要遵守的 GraphQL schema contract。目标是让客户端保持稳定、显式、低配置：GQLens 不配置 identity policy，不推断 composite key，也不把任意 `ID!` 字段当成对象身份。
+这份文档记录服务端为了配合 GQLens GraphDataStore 需要遵守的 GraphQL schema contract。目标是让客户端保持稳定、显式、低配置：GQLens 不配置 identity policy，不推断 composite key，也不把任意 `ID!` 字段当成对象身份。
 
 ## 核心规则
 
@@ -69,7 +69,7 @@ type AuditEvent {
 }
 ```
 
-`actorId` 和 `requestId` 都是 ID，但都不是 `AuditEvent` 的身份。需要 normalized cache 时应显式暴露：
+`actorId` 和 `requestId` 都是 ID，但都不是 `AuditEvent` 的身份。需要 GraphDataStore 时应显式暴露：
 
 ```graphql
 type AuditEvent {
@@ -222,7 +222,7 @@ type Plugin {
 
 ## Mutation 返回值
 
-会写入 normalized cache 的 mutation response 应返回 Entity Object 的 `id` 和必要字段。GQLens planner / generated mutation selection 应自动补齐 identity fields，但服务端 resolver 必须能稳定返回它们。
+会写入 GraphDataStore 的 mutation response 应返回 Entity Object 的 `id` 和必要字段。GQLens planner / generated mutation selection 应自动补齐 identity fields，但服务端 resolver 必须能稳定返回它们。
 
 ```graphql
 type Mutation {
@@ -276,7 +276,7 @@ nullable `id` 会让 cache address 无法稳定生成。
 
 设计或修改服务端 schema 时检查：
 
-- 需要 normalized cache 的 object 是否有 `id: ID!`。
+- 需要 GraphDataStore 的 object 是否有 `id: ID!`。
 - composite identity 是否已经由服务端编码成 opaque `id`。
 - object list item 是否都是有 `id` 的 Entity Object。
 - abstract possible concrete types 是否全部有 `id`。

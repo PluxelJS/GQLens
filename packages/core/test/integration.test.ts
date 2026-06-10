@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { createNormalizedCache, plan } from "@gqlens/core";
+import { createGraphDataStore, plan } from "@gqlens/core";
 import { cacheField } from "./cache-helpers";
 
 // ─── Planner + Cache integration ───────────────────────────────────────────
 
 describe("End-to-end: Plan → Fetch → Normalize → Read", () => {
   test("round-trip: entity with nested relation and list", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     void plan([
       { root: "Query", steps: [{ field: "user", args: { id: "1" } }, { field: "name" }] },
       {

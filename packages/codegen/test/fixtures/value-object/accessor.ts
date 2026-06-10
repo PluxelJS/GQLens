@@ -10,7 +10,7 @@ import {
   type SchemaMeta,
 } from "@gqlens/core/codegen";
 import type {
-  CacheInvalidation,
+  GraphDataInvalidation,
   MutationOperation,
   PreparedSelection,
   VariablePlaceholder,
@@ -174,7 +174,7 @@ export function useQuery(config?: GQLensQueryOptions): QueryNode & { readonly lo
   const state = useGQLensSession({ ...config, metadata: schemaMeta.planner });
   const ctx: AccessorContext = {
     root: "Query",
-    cache: state.cache,
+    store: state.store,
     demand: (steps) => state.demand("Query", steps),
     read: state.read,
   };
@@ -192,7 +192,7 @@ export function useLiveQuery(config?: GQLensQueryOptions): QueryNode & { readonl
   const state = useLiveGQLensSession({ ...config, metadata: schemaMeta.planner });
   const ctx: AccessorContext = {
     root: "Query",
-    cache: state.cache,
+    store: state.store,
     demand: (steps) => state.demand("Query", steps),
     read: state.read,
   };
@@ -213,7 +213,7 @@ export function usePreparedQuery(selection: PreparedSelection, variables: Readon
   }
   const ctx: AccessorContext = {
     root: "Query",
-    cache: state.cache,
+    store: state.store,
     demand: (steps) => state.demand("Query", steps),
     read: state.read,
   };
@@ -231,7 +231,7 @@ export function defineSelection(callback: (q: QueryNode, v: (name: string) => Va
   return defineGQLensSelection<QueryNode>(schemaMeta, schemaMeta.query, callback);
 }
 
-export function defineInvalidation(callback: (q: QueryNode) => unknown): CacheInvalidation {
+export function defineInvalidation(callback: (q: QueryNode) => unknown): GraphDataInvalidation {
   return defineGQLensInvalidation<QueryNode>(schemaMeta, schemaMeta.query, callback);
 }
 

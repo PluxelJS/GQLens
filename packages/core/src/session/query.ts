@@ -4,21 +4,21 @@ import { writeOperationResult } from "../cache/materialize";
 import { expiresAt, isExpiresFresh } from "../cache/store";
 import { applyInvalidations } from "../invalidation";
 import { createSignal } from "../signal";
-import type { NormalizedCache, QuerySessionConfig } from "../types";
+import type { GraphDataStore, QuerySessionConfig } from "../types";
 import type { Fetcher } from "../transport";
 import { createPlanCache, operationKey, planCached } from "./operation-cache";
 import type { QuerySession } from "./types";
 
 /** Runtime dependencies and execution settings for a query session. */
 export interface QuerySessionOptions extends QuerySessionConfig {
-  /** Normalized cache read before fetches and updated after successful results. */
-  readonly cache: NormalizedCache;
+  /** Graph data store read before fetches and updated after successful results. */
+  readonly store: GraphDataStore;
   /** Transport used to execute planned GraphQL operations. */
   readonly fetcher: Fetcher;
 }
 
 export function createQuerySession(options: QuerySessionOptions): QuerySession {
-  const { cache, fetcher } = options;
+  const { store, fetcher } = options;
   const policy = options.policy ?? "cache-and-network";
   const ttl = options.ttl ?? 0;
   const metadata = options.metadata;
@@ -46,7 +46,7 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
         return;
       }
 
-      const fresh = paths.every((path) => isSelectionFresh(cache, path, metadata));
+      const fresh = paths.every((path) => isSelectionFresh(store, path, metadata));
       const forced = forceNext;
       forceNext = false;
       if (!forced && policy === "cache-first" && fresh) {
@@ -79,8 +79,8 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
           if (request !== latestRequest) {
             return undefined;
           }
-          writeOperationResult(cache, data, operation.selections, ttl, metadata);
-          const freshAfterWrite = paths.every((path) => isSelectionFresh(cache, path, metadata));
+          writeOperationResult(store, data, operation.selections, ttl, metadata);
+          const freshAfterWrite = paths.every((path) => isSelectionFresh(store, path, metadata));
           // Cache-first only remembers false negatives; fresh paths must refetch if later marked stale.
           if (policy !== "cache-first" || !freshAfterWrite) {
             completed.set(key, expiresAt(ttl));
@@ -103,7 +103,7 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
   }
 
   return {
-    cache,
+    store,
 
     mount() {
       return collector.register();
@@ -149,7 +149,7 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
     },
 
     invalidate(specs) {
-      applyInvalidations(cache, specs, metadata);
+      applyInvalidations(store, specs, metadata);
       completed.clear();
       schedule(true);
     },

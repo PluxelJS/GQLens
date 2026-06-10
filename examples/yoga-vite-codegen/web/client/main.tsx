@@ -45,7 +45,7 @@ function Dashboard() {
         <div>
           <h1>GQLens Yoga demo</h1>
           <p>
-            Schema codegen, React accessors, normalized cache, Yoga resolvers, and mutation
+            Schema codegen, React accessors, GraphDataStore, Yoga resolvers, and mutation
             descriptors are all exercised here.
           </p>
         </div>

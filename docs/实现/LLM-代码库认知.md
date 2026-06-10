@@ -6,7 +6,7 @@
 
 ## 项目目标
 
-GQLens 是一个 schema-generated accessor graph + normalized cache 的 GraphQL reactive runtime。
+GQLens 是一个 schema-generated accessor graph + GraphDataStore 的 GraphQL reactive runtime。
 
 用户不写 query string，也不写动态 field API。用户读取生成的 accessor：
 
@@ -18,13 +18,13 @@ q.search({ text }).refs;
 q.pet({ id }).$on.Cat.meows;
 ```
 
-读取动作会记录 selection path，并从 normalized cache 读 signal。session 根据 active selection 规划 GraphQL operation、fetch、normalize、更新 signal。
+读取动作会记录 selection path，并从 GraphDataStore 读 signal。session 根据 active selection 规划 GraphQL operation、fetch、normalize、更新 signal。
 
 ## Workspace 地图
 
 ```txt
 packages/core
-  src/cache.ts          normalized cache
+  src/cache.ts          GraphDataStore
   src/planner.ts        selection paths -> GraphQL operation
   src/session.ts        active demand + fetch/live scheduling
   src/invalidation.ts   invalidation helper
@@ -80,7 +80,7 @@ packages/oxlint-plugin
 { type: "User", id: "1" }
 ```
 
-`CacheInvalidation`：
+`GraphDataInvalidation`：
 
 - address target: `{ kind: "address", address, family? }`
 - entity target: `{ kind: "entity", ref, paths? }`
@@ -133,7 +133,7 @@ User:1.posts({"first":10}).ids    -> readonly string[]
 - list accessor：concrete list 暴露 `.ids`；abstract list 暴露 `.refs`。
 - `$on` accessor：由 schema metadata 生成分支；分支不匹配返回 `undefined`。
 - `defineSelection()` 只收集 paths 和 variable placeholder。
-- `defineInvalidation()` 返回 `CacheInvalidation`。
+- `defineInvalidation()` 返回 `GraphDataInvalidation`。
 
 不要让 accessor node 可枚举。`Object.keys(q.viewer)` / `JSON.stringify(q.viewer)` 应保持空对象语义。
 
@@ -175,7 +175,7 @@ User:1.posts({"first":10}).ids    -> readonly string[]
 
 - 同样使用 active selection + planner。
 - 用 subscriber 替代一次性 fetch。
-- live patch 仍写入同一个 normalized cache。
+- live patch 仍写入同一个 GraphDataStore。
 
 Cache policy：
 
@@ -189,11 +189,11 @@ Cache policy：
 
 `applyInvalidations(cache, invalidations, metadata?)` 支持：
 
-- `CacheInvalidation` target：`address` / `entity` / `root` / `selection`
+- `GraphDataInvalidation` target：`address` / `entity` / `root` / `selection`
 - `entity` target：失效整个 entity 或指定 `paths`
 - `selection` target：失效对应 root slot family；如果 metadata 能定位 concrete root entity，也会失效 owner entity address family
 
-React/Solid mutation options 的 `invalidates` 接受 `CacheInvalidation[]`。mutation runner 会应用 invalidation；React provider 传入额外策略，在成功后 refetch active sessions。
+React/Solid mutation options 的 `invalidates` 接受 `GraphDataInvalidation[]`。mutation runner 会应用 invalidation；React provider 传入额外策略，在成功后 refetch active sessions。
 
 ## Mutation Runner
 
@@ -205,7 +205,7 @@ React/Solid mutation options 的 `invalidates` 接受 `CacheInvalidation[]`。mu
 
 - 支持 operation descriptor 和 callback mutation。
 - operation descriptor 通过 fetcher 执行，并支持 GraphQL response envelope。
-- optimistic callback 通过 `CacheAddress` 读写 cache。
+- optimistic callback 通过 `GraphDataAddress` 读写 cache。
 - 成功后应用 invalidates，并 normalize server response。
 - optimistic 写入在 `cache.transaction()` 中执行；失败时 rollback transaction，和 invalidation hints 解耦。
 
@@ -243,7 +243,7 @@ React/Solid mutation options 的 `invalidates` 接受 `CacheInvalidation[]`。mu
 生成：
 
 - `normalizerEntries`
-- `Invalidation = CacheInvalidation`
+- `Invalidation = GraphDataInvalidation`
 
 ## Vite Package
 
@@ -298,7 +298,7 @@ Mutation：
 
 1. schema-generated accessor shape 是公共 API。
 2. runtime discovery 和 prepared selection 使用同一套 accessor graph。
-3. normalized cache 是唯一数据源。
+3. GraphDataStore 是唯一数据源。
 4. planner 只处理 operation 序列化，不读取 cache。
 5. session 只处理 active demand 和调度。
 6. adapter 只处理宿主响应式生命周期。

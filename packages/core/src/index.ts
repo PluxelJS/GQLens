@@ -1,14 +1,17 @@
 export type {
   AlienSignal,
   AlienSignalReader,
-  CacheAddress,
-  CacheFacet,
-  CacheInvalidation,
-  CacheOwner,
-  CachePath,
+  GraphDataAddress,
+  GraphDataFacet,
+  GraphDataInvalidation,
+  GraphDataOwner,
+  GraphDataPath,
+  GraphDataRecord,
+  GraphDataRecordMap,
+  GraphDataRecords,
   CachePolicy,
-  CacheTransaction,
-  CacheWriteOptions,
+  GraphDataTransaction,
+  GraphDataWriteOptions,
   EntityRef,
   FieldSignal,
   GraphQLOperation,
@@ -16,7 +19,7 @@ export type {
   MutationOperation,
   MutationOptions,
   MutationSource,
-  NormalizedCache,
+  GraphDataStore,
   PreparedSelection,
   PlannedSelectionPath,
   PlannedSelectionStep,
@@ -31,7 +34,7 @@ export type {
 
 export { createSignal, watchSignal } from "./signal";
 export { selectionKey } from "./keys";
-export { createNormalizedCache } from "./cache";
+export { createGraphDataStore } from "./cache";
 export type { ReaderHandle, SelectionCollector } from "./collector";
 export { createSelectionCollector } from "./collector";
 export { applyInvalidations } from "./invalidation";

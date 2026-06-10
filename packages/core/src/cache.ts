@@ -1,60 +1,71 @@
 import { createEntityRefStore } from "./cache/entity";
 import {
-  cacheFieldKey,
+  graphDataFieldKey,
   entityFieldKey,
   isListIdentityStep,
   suffixedSlotKey,
 } from "./cache/address";
 import { normalizeGraphQLResult } from "./cache/normalize";
 import {
-  createCacheStore,
+  clearEntries,
+  createGraphDataStoreRuntime,
+  deleteEntry,
   expiresAt,
   getEntry,
-  isFresh,
-  markStale,
-  type CacheStore,
+  isFreshEntry,
+  markEntryStale,
+  peekEntry,
+  writeEntry,
+  type GraphDataStoreRuntime,
+  type FieldEntry,
+  type GraphDataEntryStore,
 } from "./cache/store";
 import type {
-  CacheAddress,
-  CacheInvalidation,
-  CachePath,
-  CacheTransaction,
-  CacheWriteOptions,
+  GraphDataAddress,
+  GraphDataInvalidation,
+  GraphDataPath,
+  GraphDataTransaction,
+  GraphDataWriteOptions,
   EntityRef,
   FieldSignal,
+  GraphDataRecords,
+  GraphDataRecord,
   GraphQLResult,
-  NormalizedCache,
+  GraphDataStore,
   PlannerMetadata,
   SelectionPath,
 } from "./types";
 
-export function createNormalizedCache(): NormalizedCache {
-  const store = createCacheStore();
+export function createGraphDataStore(
+  config: { readonly records?: GraphDataRecords } = {},
+): GraphDataStore {
+  const store = createGraphDataStoreRuntime(config.records);
   const entityRefs = createEntityRefStore();
 
-  const cache: NormalizedCache = {
-    entry<T = unknown>(address: CacheAddress): FieldSignal<T> {
+  const graphStore: GraphDataStore = {
+    entry<T = unknown>(address: GraphDataAddress): FieldSignal<T> {
       return getEntry<T>(entryStore(store, address), publicAddressKey(address));
     },
 
-    peek<T = unknown>(address: CacheAddress): FieldSignal<T> | undefined {
-      return entryStore(store, address).get(publicAddressKey(address)) as
-        | FieldSignal<T>
-        | undefined;
+    peek<T = unknown>(address: GraphDataAddress): FieldSignal<T> | undefined {
+      return peekEntry<T>(entryStore(store, address), publicAddressKey(address));
     },
 
-    read<T = unknown>(address: CacheAddress): T | undefined {
-      return cache.peek<T>(address)?.sig();
+    read<T = unknown>(address: GraphDataAddress): T | undefined {
+      return graphStore.peek<T>(address)?.sig();
     },
 
-    write<T = unknown>(address: CacheAddress, value: T, options?: CacheWriteOptions): void {
-      const entry = cache.entry<T>(address);
-      entry.sig(value);
-      entry.expires = expiresAt(options?.ttl ?? 0);
+    write<T = unknown>(address: GraphDataAddress, value: T, options?: GraphDataWriteOptions): void {
+      writeEntry(
+        entryStore(store, address),
+        publicAddressKey(address),
+        value,
+        expiresAt(options?.ttl ?? 0),
+      );
     },
 
-    isFresh(address: CacheAddress): boolean {
-      return isFresh(entryStore(store, address).get(publicAddressKey(address)));
+    isFresh(address: GraphDataAddress): boolean {
+      return isFreshEntry(entryStore(store, address), publicAddressKey(address));
     },
 
     entity(type: string, id: string): EntityRef {
@@ -65,21 +76,21 @@ export function createNormalizedCache(): NormalizedCache {
       normalizeGraphQLResult(data, store, entityRefs, expiresAt(ttl), metadata);
     },
 
-    invalidate(targetOrTargets: CacheInvalidation | readonly CacheInvalidation[]): void {
+    invalidate(targetOrTargets: GraphDataInvalidation | readonly GraphDataInvalidation[]): void {
       const targets = Array.isArray(targetOrTargets) ? targetOrTargets : [targetOrTargets];
       for (const target of targets) {
-        invalidateTarget(cache, store, target);
+        invalidateTarget(graphStore, store, target);
       }
     },
 
     clear(): void {
-      store.fields.clear();
-      store.slots.clear();
+      clearEntries(store.fields);
+      clearEntries(store.slots);
     },
 
-    transaction<T>(run: (cache: NormalizedCache) => T): CacheTransaction<T> {
+    transaction<T>(run: (store: GraphDataStore) => T): GraphDataTransaction<T> {
       const snapshot = snapshotStore(store);
-      const result = run(cache);
+      const result = run(graphStore);
       return {
         result,
         rollback(): void {
@@ -89,15 +100,15 @@ export function createNormalizedCache(): NormalizedCache {
     },
   };
 
-  return cache;
+  return graphStore;
 }
 
-function publicAddressKey(address: CacheAddress): string {
+function publicAddressKey(address: GraphDataAddress): string {
   const suffix =
     address.facet && address.facet !== "value" && address.facet !== "link"
       ? address.facet
       : undefined;
-  const pathKey = cacheFieldKey(address.path);
+  const pathKey = graphDataFieldKey(address.path);
   if (address.owner.kind === "root") {
     const base = `${address.owner.root}.${pathKey}`;
     return suffix ? suffixedSlotKey(base, suffix) : base;
@@ -106,35 +117,39 @@ function publicAddressKey(address: CacheAddress): string {
   return suffix ? suffixedSlotKey(base, suffix) : base;
 }
 
-function invalidateEntity(store: CacheStore, ref: EntityRef, paths?: readonly CachePath[]): void {
+function invalidateEntity(
+  store: GraphDataStoreRuntime,
+  ref: EntityRef,
+  paths?: readonly GraphDataPath[],
+): void {
   if (paths && paths.length > 0) {
     for (const path of paths) {
-      invalidateAddressFamily(store, entityFieldKey(ref, cacheFieldKey(path)));
+      invalidateAddressFamily(store, entityFieldKey(ref, graphDataFieldKey(path)));
     }
     return;
   }
 
   const prefix = `${ref.type}:${ref.id}.`;
   for (const entries of [store.fields, store.slots]) {
-    for (const [key, entry] of entries) {
+    for (const [key] of entries.records.entries()) {
       if (key.startsWith(prefix)) {
-        markStale(entry);
+        markEntryStale(entries, key);
       }
     }
   }
 }
 
 function invalidateTarget(
-  cache: NormalizedCache,
-  store: CacheStore,
-  target: CacheInvalidation,
+  graphStore: GraphDataStore,
+  store: GraphDataStoreRuntime,
+  target: GraphDataInvalidation,
 ): void {
   if (target.kind === "address") {
     const key = publicAddressKey(target.address);
     if (target.family) {
       invalidateAddressFamily(store, key);
     } else {
-      markStale(entryStore(store, target.address).get(key));
+      markEntryStale(entryStore(store, target.address), key);
     }
     return;
   }
@@ -149,13 +164,13 @@ function invalidateTarget(
     return;
   }
 
-  invalidateSelection(cache, store, target.path, target.metadata);
+  invalidateSelection(graphStore, store, target.path, target.metadata);
 }
 
 function invalidateRootTarget(
-  store: CacheStore,
+  store: GraphDataStoreRuntime,
   root: string,
-  paths: readonly CachePath[] | undefined,
+  paths: readonly GraphDataPath[] | undefined,
 ): void {
   if (paths && paths.length > 0) {
     for (const path of paths) {
@@ -165,16 +180,16 @@ function invalidateRootTarget(
   }
 
   const prefix = `${root}.`;
-  for (const [key, entry] of store.slots) {
+  for (const [key] of store.slots.records.entries()) {
     if (key.startsWith(prefix)) {
-      markStale(entry);
+      markEntryStale(store.slots, key);
     }
   }
 }
 
 function invalidateSelection(
-  cache: NormalizedCache,
-  store: CacheStore,
+  graphStore: GraphDataStore,
+  store: GraphDataStoreRuntime,
   path: SelectionPath,
   metadata: PlannerMetadata | undefined,
 ): void {
@@ -192,17 +207,17 @@ function invalidateSelection(
   if (!rootStep || keySteps.length === 0 || id === undefined || !type || isAbstract) {
     return;
   }
-  invalidateEntity(store, cache.entity(type, String(id)), [keySteps]);
+  invalidateEntity(store, graphStore.entity(type, String(id)), [keySteps]);
 }
 
-function invalidateAddressFamily(store: CacheStore, key: string): void {
-  markStale(store.fields.get(key));
-  markStale(store.slots.get(key));
-  markStale(store.slots.get(suffixedSlotKey(key, "ids")));
-  markStale(store.slots.get(suffixedSlotKey(key, "refs")));
+function invalidateAddressFamily(store: GraphDataStoreRuntime, key: string): void {
+  markEntryStale(store.fields, key);
+  markEntryStale(store.slots, key);
+  markEntryStale(store.slots, suffixedSlotKey(key, "ids"));
+  markEntryStale(store.slots, suffixedSlotKey(key, "refs"));
 }
 
-function entryStore(store: CacheStore, address: CacheAddress): Map<string, FieldSignal> {
+function entryStore(store: GraphDataStoreRuntime, address: GraphDataAddress): GraphDataEntryStore {
   if (
     address.owner.kind === "root" ||
     address.facet === "link" ||
@@ -220,54 +235,67 @@ interface StoreSnapshot {
 }
 
 interface EntrySnapshot {
-  readonly entry: FieldSignal<unknown>;
-  readonly value: unknown;
-  readonly expires: number;
+  readonly entry?: FieldSignal<unknown> | undefined;
+  readonly record?: GraphDataRecord | undefined;
 }
 
-function snapshotStore(store: CacheStore): StoreSnapshot {
+function snapshotStore(store: GraphDataStoreRuntime): StoreSnapshot {
   return {
     fields: snapshotEntries(store.fields),
     slots: snapshotEntries(store.slots),
   };
 }
 
-function snapshotEntries(entries: Map<string, FieldSignal>): Map<string, EntrySnapshot> {
-  return new Map(
-    [...entries].map(([key, entry]) => [
-      key,
-      { entry, value: entry.sig(), expires: entry.expires },
-    ]),
-  );
+function snapshotEntries(entries: GraphDataEntryStore): Map<string, EntrySnapshot> {
+  const snapshot = new Map<string, EntrySnapshot>();
+  for (const [key, record] of entries.records.entries()) {
+    snapshot.set(key, { entry: entries.signals.get(key), record });
+  }
+  for (const [key, entry] of entries.signals) {
+    if (!snapshot.has(key)) {
+      snapshot.set(key, { entry });
+    }
+  }
+  return snapshot;
 }
 
-function restoreStore(store: CacheStore, snapshot: StoreSnapshot): void {
+function restoreStore(store: GraphDataStoreRuntime, snapshot: StoreSnapshot): void {
   restoreEntries(store.fields, snapshot.fields);
   restoreEntries(store.slots, snapshot.slots);
 }
 
-function restoreEntries(
-  entries: Map<string, FieldSignal>,
-  snapshot: Map<string, EntrySnapshot>,
-): void {
-  for (const [key, entry] of entries) {
-    const saved = snapshot.get(key);
-    if (saved && saved.entry === entry) {
-      restoreEntry(entry, saved);
-      continue;
+function restoreEntries(entries: GraphDataEntryStore, snapshot: Map<string, EntrySnapshot>): void {
+  const currentKeys = new Set<string>([
+    ...[...entries.records.entries()].map(([key]) => key),
+    ...entries.signals.keys(),
+  ]);
+
+  for (const key of currentKeys) {
+    if (!snapshot.has(key)) {
+      deleteEntry(entries, key);
     }
-    entry.sig(undefined);
-    entry.expires = 0;
-    entries.delete(key);
   }
 
   for (const [key, saved] of snapshot) {
-    restoreEntry(saved.entry, saved);
-    entries.set(key, saved.entry);
+    if (!saved.record) {
+      entries.records.delete(key);
+      saved.entry?.sig(undefined);
+      if (saved.entry) {
+        entries.signals.set(key, saved.entry as FieldEntry);
+      }
+      continue;
+    }
+
+    entries.records.set(key, saved.record);
+    const entry = entries.signals.get(key) ?? saved.entry;
+    if (entry) {
+      restoreEntry(entry, saved.record);
+      entries.signals.set(key, entry as FieldEntry);
+    }
   }
 }
 
-function restoreEntry(entry: FieldSignal<unknown>, snapshot: EntrySnapshot): void {
-  entry.sig(snapshot.value);
-  entry.expires = snapshot.expires;
+function restoreEntry(entry: FieldSignal<unknown>, record: GraphDataRecord): void {
+  entry.expires = record.expires;
+  entry.sig(record.value);
 }

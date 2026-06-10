@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   applyInvalidations,
   createLiveQuerySession,
-  createNormalizedCache,
+  createGraphDataStore,
   createQuerySession,
   type Fetcher,
   type GraphQLOperation,
@@ -21,9 +21,9 @@ const p = (steps: SelectionStep[]): SelectionPath => ({
 
 describe("QuerySession", () => {
   test("sets error when fetcher rejects", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => {
         throw new Error("network down");
       },
@@ -38,9 +38,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule syncs argument-sensitive root list slots", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         todos: [
           { __typename: "Todo", id: "1", title: "Buy milk" },
@@ -61,9 +61,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule syncs aliased root slots back to original selection keys", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         user_0: { __typename: "User", id: "1", name: "Alice" },
         user_1: { __typename: "User", id: "2", name: "Bob" },
@@ -93,9 +93,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule accepts fetchers that return GraphQL response envelopes", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         data: { viewer: { __typename: "User", id: "1", name: "Alice" } },
       }),
@@ -114,9 +114,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule keeps selected scalar arrays as slot values without ids", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({ tags: ["typescript", "graphql"] }),
     });
     const reader = session.mount();
@@ -132,9 +132,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule writes empty list ids when ids are selected", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({ todos: [] }),
     });
     const reader = session.mount();
@@ -147,9 +147,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule writes abstract list refs when refs are selected", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         search: [
           { __typename: "User", id: "1", name: "Alice" },
@@ -186,13 +186,13 @@ describe("QuerySession", () => {
   });
 
   test("schedule clears stale list ids when selected list becomes null", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const fetcher = vi
       .fn<Fetcher>()
       .mockResolvedValueOnce({ todos: [{ __typename: "Todo", id: "1" }] })
       .mockResolvedValueOnce({ todos: null });
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
     });
     const reader = session.mount();
@@ -211,11 +211,11 @@ describe("QuerySession", () => {
   });
 
   test("cache-first skips fetch when a selected entity field is fresh", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -236,9 +236,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule writes embedded value object leaves under the owning entity", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         user: {
           __typename: "User",
@@ -269,7 +269,7 @@ describe("QuerySession", () => {
   });
 
   test("schedule clears embedded value object leaves when the value becomes null", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cache.normalize(
       {
         user: {
@@ -300,7 +300,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first skips fetch when a selected embedded value object leaf is fresh", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cache.normalize(
       {
         user: {
@@ -314,7 +314,7 @@ describe("QuerySession", () => {
     );
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: valueObjectMetadata(),
@@ -337,7 +337,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first skips fetch when a root value object list ids slot is fresh", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const metadata = {
       roots: {
         pluginStatus: {
@@ -371,7 +371,7 @@ describe("QuerySession", () => {
     );
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata,
@@ -390,7 +390,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first skips fetch when an entity-owned value object list ids slot is fresh", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const metadata = {
       roots: {
         plugin: {
@@ -435,7 +435,7 @@ describe("QuerySession", () => {
     );
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata,
@@ -461,7 +461,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first fetches value object list ids only once after normalization", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const metadata = {
       roots: {
         pluginStatus: {
@@ -490,7 +490,7 @@ describe("QuerySession", () => {
       },
     }));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata,
@@ -512,10 +512,10 @@ describe("QuerySession", () => {
   });
 
   test("cache-first does not repeat a completed operation within ttl after a freshness false-negative", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       ttl: 30000,
@@ -533,7 +533,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first refetches stale fields after a completed fresh operation", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const fetcher = vi
       .fn<Fetcher>()
       .mockResolvedValueOnce({
@@ -543,7 +543,7 @@ describe("QuerySession", () => {
         user: { __typename: "User", id: "1", name: "Fresh Alice" },
       });
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       ttl: 30000,
@@ -574,11 +574,11 @@ describe("QuerySession", () => {
   });
 
   test("cache-first treats non-matching inline fragments as fresh once the owner type is known", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cache.normalize({ pet: { __typename: "Dog", id: "2", barks: true } });
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -606,11 +606,11 @@ describe("QuerySession", () => {
   });
 
   test("cache-first treats cached null root slots as fresh", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cacheSlot(cache, 'Query.user({"id":"1"})').sig(null);
     const fetcher = vi.fn<Fetcher>(async () => ({}));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -631,7 +631,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first refetches stale null root slots", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const slot = cacheSlot(cache, 'Query.user({"id":"1"})');
     slot.sig(null);
     slot.expires = Date.now() - 1;
@@ -640,7 +640,7 @@ describe("QuerySession", () => {
       user: { __typename: "User", id: "1", name: "Fresh Alice" },
     }));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -662,7 +662,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-first refetches when a selected entity field is stale", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
     cache.invalidate({
       kind: "entity",
@@ -673,7 +673,7 @@ describe("QuerySession", () => {
       user: { __typename: "User", id: "1", name: "Fresh Alice" },
     }));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -695,12 +695,12 @@ describe("QuerySession", () => {
   });
 
   test("cache-and-network does not repeat the same fresh completed operation", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const fetcher = vi.fn<Fetcher>(async () => ({
       viewer: { __typename: "User", id: "1", name: "Alice" },
     }));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-and-network",
       metadata: {
@@ -722,7 +722,7 @@ describe("QuerySession", () => {
   });
 
   test("cache-and-network repeats fresh operations after completed ttl expires", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const metadata = {
       roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
       types: { User: { name: { returnsEntity: false } } },
@@ -736,7 +736,7 @@ describe("QuerySession", () => {
         viewer: { __typename: "User", id: "1", name: "Fresh Alice" },
       });
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-and-network",
       ttl: 1,
@@ -762,12 +762,12 @@ describe("QuerySession", () => {
   });
 
   test("refetch forces a fresh completed operation to run again", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const fetcher = vi.fn<Fetcher>(async () => ({
       viewer: { __typename: "User", id: "1", name: "Alice" },
     }));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -789,11 +789,11 @@ describe("QuerySession", () => {
   });
 
   test("cache-and-network returns stale data while re-fetching", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const names = ["Alice", "Bob"];
     let call = -1;
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => {
         call++;
         return { viewer: { __typename: "User", id: "1", name: names[call] } };
@@ -826,13 +826,13 @@ describe("QuerySession", () => {
   });
 
   test("invalidate marks fields stale and schedules active demand", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
     const fetcher = vi.fn<Fetcher>(async () => ({
       user: { __typename: "User", id: "1", name: "Fresh Alice" },
     }));
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher,
       policy: "cache-first",
       metadata: {
@@ -863,7 +863,7 @@ describe("QuerySession", () => {
   });
 
   test("applyInvalidations handles selection targets and concrete root entity fields", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const name = cacheField<string>(cache, cache.entity("User", "1"), "name");
     const refs = cacheSlot<readonly { type: string; id: string }[]>(
       cache,
@@ -898,7 +898,7 @@ describe("QuerySession", () => {
   });
 
   test("applyInvalidations marks embedded value object leaf fields stale", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const status = cacheField<string>(cache, cache.entity("User", "1"), "status.source.kind");
     status.sig("hmr");
 
@@ -925,7 +925,7 @@ describe("QuerySession", () => {
   });
 
   test("applyInvalidations marks entity-owned list relation slots stale", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const posts = cacheSlot<readonly string[]>(cache, "User:1.posts.ids");
     posts.sig(["10"]);
 
@@ -954,9 +954,9 @@ describe("QuerySession", () => {
   });
 
   test("root invalidation marks both ids and refs list slots stale", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({}),
     });
     const ids = cacheSlot<readonly string[]>(cache, 'Query.search({"text":"hello"}).ids');
@@ -980,14 +980,14 @@ describe("QuerySession", () => {
   });
 
   test("live session streams repeated patches into cache", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const listeners: Array<(data: unknown) => void> = [];
     const subscribe = vi.fn<LiveSubscriber>((_, onData) => {
       listeners.push(onData);
       return () => undefined;
     });
     const session = createLiveQuerySession({
-      cache,
+      store: cache,
       subscriber: subscribe,
       metadata: {
         roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
@@ -1009,11 +1009,11 @@ describe("QuerySession", () => {
   });
 
   test("live session unsubscribes when active selection becomes empty", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const unsubscribe = vi.fn<() => void>(() => undefined);
     const subscribe = vi.fn<LiveSubscriber>(() => unsubscribe);
     const session = createLiveQuerySession({
-      cache,
+      store: cache,
       subscriber: subscribe,
     });
     const reader = session.mount();
@@ -1032,9 +1032,9 @@ describe("QuerySession", () => {
   });
 
   test("live session sets error when subscribe throws synchronously", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createLiveQuerySession({
-      cache,
+      store: cache,
       subscriber: () => {
         throw new Error("subscribe failed");
       },
@@ -1051,10 +1051,10 @@ describe("QuerySession", () => {
   });
 
   test("live session sets error when subscribe fires onError", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     let onErrorRef: ((reason: Error) => void) | undefined;
     const session = createLiveQuerySession({
-      cache,
+      store: cache,
       subscriber: (_op, _onData, onError) => {
         onErrorRef = onError;
         return () => undefined;
@@ -1074,9 +1074,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule writes args-sensitive relation list ids onto the owner relation slot", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         user: {
           __typename: "User",
@@ -1111,9 +1111,9 @@ describe("QuerySession", () => {
   });
 
   test("schedule syncs matching inline fragment fields through normalized entities", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({ pet: { __typename: "Cat", id: "1", meows: true } }),
       metadata: {
         roots: { pet: { returnsEntity: true, graphQLType: "Pet", args: { id: "ID!" } } },
@@ -1141,10 +1141,10 @@ describe("QuerySession", () => {
   });
 
   test("loading stays true until every in-flight operation settles", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const resolvers: Array<(value: Record<string, unknown>) => void> = [];
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: (op: GraphQLOperation) => {
         const firstId = String(op.variables["v0"]);
         return new Promise((resolve) => {
@@ -1180,10 +1180,10 @@ describe("QuerySession", () => {
   });
 
   test("ignores stale responses from older in-flight operations", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const resolvers: Array<(value: Record<string, unknown>) => void> = [];
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: () =>
         new Promise((resolve) => {
           resolvers.push(resolve);
@@ -1227,13 +1227,13 @@ describe("QuerySession", () => {
   });
 
   test("ignores stale errors from older in-flight operations", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const deferred: Array<{
       readonly resolve: (value: Record<string, unknown>) => void;
       readonly reject: (reason: unknown) => void;
     }> = [];
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: () =>
         new Promise((resolve, reject) => {
           deferred.push({ resolve, reject });

@@ -1,4 +1,4 @@
-import type { CacheInvalidation, MutationOperation, PreparedSelection } from "@gqlens/core";
+import type { GraphDataInvalidation, MutationOperation, PreparedSelection } from "@gqlens/core";
 import type { NormalizerEntry } from "@gqlens/core/codegen";
 import {
   api,
@@ -39,7 +39,7 @@ export const staticSelection: PreparedSelection = defineSelection((q, v) => {
   void q.search({ text: v("text") }).refs;
 });
 
-export const invalidation: CacheInvalidation = defineInvalidation(
+export const invalidation: GraphDataInvalidation = defineInvalidation(
   (q) => q.user({ id: "user-1" }).posts.ids,
 );
 

@@ -7,17 +7,23 @@ import type {
 } from "../types";
 import { isEntityObject, isRecord } from "../guards";
 import {
-  cacheFieldKey,
+  graphDataFieldKey,
   entityFieldKey,
   entityRelationKey,
   fieldStepForPath,
   suffixedSlotKey,
 } from "./address";
 import type { EntityRefStore } from "./entity";
-import { clearSlotIdentities, type CacheStore, type FieldEntry, writeEntry } from "./store";
+import {
+  clearSlotIdentities,
+  deleteEntry,
+  type GraphDataStoreRuntime,
+  type GraphDataEntryStore,
+  writeEntry,
+} from "./store";
 
 interface NormalizeContext {
-  readonly store: CacheStore;
+  readonly store: GraphDataStoreRuntime;
   readonly entityRefs: EntityRefStore;
   readonly expires: number;
 }
@@ -34,7 +40,7 @@ interface NormalizeTarget {
 
 export function normalizeGraphQLResult(
   data: GraphQLResult,
-  store: CacheStore,
+  store: GraphDataStoreRuntime,
   entityRefs: EntityRefStore,
   expires: number,
   metadata: PlannerMetadata | undefined,
@@ -67,7 +73,7 @@ function normalizeValueWithMeta(
     writeEntry(store.slots, slotKey, null, expires);
     clearSlotIdentities(store.slots, slotKey);
     if (ownerRef && fieldSteps.length > 0) {
-      clearEntityFieldPrefix(store.fields, ownerRef, cacheFieldKey(fieldSteps));
+      clearEntityFieldPrefix(store.fields, ownerRef, graphDataFieldKey(fieldSteps));
     }
     return null;
   }
@@ -192,7 +198,7 @@ function writeLeafValue(value: unknown, context: NormalizeContext, target: Norma
   if (target.ownerRef && target.fieldSteps.length > 0) {
     writeEntry(
       context.store.fields,
-      entityFieldKey(target.ownerRef, cacheFieldKey(target.fieldSteps)),
+      entityFieldKey(target.ownerRef, graphDataFieldKey(target.fieldSteps)),
       value,
       context.expires,
     );
@@ -271,7 +277,7 @@ function ownerTarget(
 }
 
 function writeListRelation(
-  store: CacheStore,
+  store: GraphDataStoreRuntime,
   slotKey: string,
   refs: readonly EntityRef[],
   expires: number,
@@ -287,7 +293,7 @@ function writeListRelation(
 }
 
 function writeOwnerListRelation(
-  store: CacheStore,
+  store: GraphDataStoreRuntime,
   ownerRef: EntityRef,
   step: SelectionStep,
   refs: readonly EntityRef[],
@@ -304,15 +310,14 @@ function writeOwnerListRelation(
 }
 
 function clearEntityFieldPrefix(
-  fields: Map<string, FieldEntry>,
+  fields: GraphDataEntryStore,
   ref: EntityRef,
   fieldPrefix: string,
 ): void {
   const prefix = entityFieldKey(ref, `${fieldPrefix}.`);
-  for (const [key, entry] of fields) {
+  for (const [key] of fields.records.entries()) {
     if (key.startsWith(prefix)) {
-      entry.sig(undefined);
-      entry.expires = 0;
+      deleteEntry(fields, key);
     }
   }
 }

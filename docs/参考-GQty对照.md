@@ -11,7 +11,7 @@ GQty 和 GQLens 共享几个关键判断：
 - UI 字段读取可以成为数据需求的来源
 - selection 可以跨组件合并，减少手写 query 和手动 batching
 - cache miss / stale 可以由 active demand 驱动 fetch
-- normalized cache 是跨路径共享实体更新的必要条件
+- GraphDataStore 是跨路径共享实体更新的必要条件
 - 读取 API 必须保留 TypeScript 对 schema 变化的反馈
 
 这些判断构成 GQLens 的设计谱系。GQLens 的分歧不是“是否自动生成 query”，而是自动生成 query 的边界放在哪里。
@@ -69,7 +69,7 @@ const userCard = defineSelection((q, v) => {
 
 运行时读取仍然正确；prepared selection 只用于提前调度、稳定 operation name、persisted hash、SSR 预取和静态诊断。
 
-### 4. normalized cache 必须仍然 reactive
+### 4. GraphDataStore 必须仍然 reactive
 
 GQty 强调 normalized 后仍要保持响应式：同一实体在不同路径出现，任何路径更新都应通知其他路径 reader。
 

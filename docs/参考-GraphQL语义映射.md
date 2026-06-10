@@ -158,7 +158,7 @@ GraphQL subscription 可以实现 `LiveSubscriber`，但 GQLens 的 live transpo
 ```txt
 GraphQL subscription / SSE / WebSocket / business channel
   → LiveSubscriber
-  → NormalizedCache
+  → GraphDataStore
   → field signal
 ```
 

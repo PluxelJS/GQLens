@@ -137,14 +137,14 @@ const q = useQuery({
 
 ## 合并规则
 
-| 场景                 | 行为                     |
-| -------------------- | ------------------------ |
-| 同一 root、同一 args | 合并字段                 |
-| 同一 root、不同 args | 生成 alias               |
-| 不同路径命中同一实体 | NormalizedCache 自动去重 |
-| 同一字段被多次读取   | 合并为一次请求           |
-| reader 卸载          | 移除其 selection         |
-| 条件分支变化         | diff 新旧 selection      |
+| 场景                 | 行为                    |
+| -------------------- | ----------------------- |
+| 同一 root、同一 args | 合并字段                |
+| 同一 root、不同 args | 生成 alias              |
+| 不同路径命中同一实体 | GraphDataStore 自动去重 |
+| 同一字段被多次读取   | 合并为一次请求          |
+| reader 卸载          | 移除其 selection        |
+| 条件分支变化         | diff 新旧 selection     |
 
 ### Alias 示例
 
@@ -280,7 +280,7 @@ live.user({ id }).name; // 同一套 accessor API
 
 GQLens 的核心契约是 `LiveSubscriber`，不是某个具体协议。外部可以用 WebSocket、SSE 或业务已有实时通道实现它；session 只负责 selection 变化时重新订阅、组件卸载时取消订阅，并把收到的 patch 写入对应 field signal。
 
-live 与 fetch 的差异只在传输层：live patch 仍写入同一个 NormalizedCache，reader 仍通过字段 signal 被通知。
+live 与 fetch 的差异只在传输层：live patch 仍写入同一个 GraphDataStore，reader 仍通过字段 signal 被通知。
 
 需要区分两个概念：
 

@@ -8,6 +8,26 @@ export interface FieldSignal<T = unknown> {
   expires: number;
 }
 
+export interface GraphDataRecord {
+  readonly value: unknown;
+  readonly expires: number;
+}
+
+export interface GraphDataRecordMap {
+  get(key: string): GraphDataRecord | undefined;
+  set(key: string, record: GraphDataRecord): void;
+  delete(key: string): boolean;
+  clear(): void;
+  entries(): Iterable<readonly [string, GraphDataRecord]>;
+
+  onEvict?(listener: (key: string, record: GraphDataRecord) => void): () => void;
+}
+
+export interface GraphDataRecords {
+  readonly fields: GraphDataRecordMap;
+  readonly slots: GraphDataRecordMap;
+}
+
 export interface EntityRef {
   readonly type: string;
   readonly id: string;
@@ -17,47 +37,53 @@ export interface VariablePlaceholder {
   readonly __gqlensVariable: string;
 }
 
-export type CacheFacet = "value" | "link" | "ids" | "refs";
+export type GraphDataFacet = "value" | "link" | "ids" | "refs";
 
-export type CacheOwner =
+export type GraphDataOwner =
   | { readonly kind: "root"; readonly root: string }
   | { readonly kind: "entity"; readonly ref: EntityRef };
 
-export interface CacheAddress {
-  readonly owner: CacheOwner;
+export interface GraphDataAddress {
+  readonly owner: GraphDataOwner;
   readonly path: readonly SelectionStep[];
-  readonly facet?: CacheFacet | undefined;
+  readonly facet?: GraphDataFacet | undefined;
 }
 
-export type CachePath = readonly SelectionStep[];
+export type GraphDataPath = readonly SelectionStep[];
 
-export type CacheInvalidation =
-  | { readonly kind: "address"; readonly address: CacheAddress; readonly family?: boolean }
-  | { readonly kind: "entity"; readonly ref: EntityRef; readonly paths?: readonly CachePath[] }
-  | { readonly kind: "root"; readonly root: string; readonly paths?: readonly CachePath[] }
+export type GraphDataInvalidation =
+  | { readonly kind: "address"; readonly address: GraphDataAddress; readonly family?: boolean }
+  | { readonly kind: "entity"; readonly ref: EntityRef; readonly paths?: readonly GraphDataPath[] }
+  | { readonly kind: "root"; readonly root: string; readonly paths?: readonly GraphDataPath[] }
   | {
       readonly kind: "selection";
       readonly path: SelectionPath;
       readonly metadata?: PlannerMetadata | undefined;
     };
 
-export interface CacheWriteOptions {
+export interface GraphDataWriteOptions {
+  /**
+   * Freshness lifetime in milliseconds.
+   *
+   * @default 0
+   * A value of 0 means the written record does not expire by TTL.
+   */
   readonly ttl?: number | undefined;
 }
 
-export interface CacheTransaction<T = unknown> {
+export interface GraphDataTransaction<T = unknown> {
   readonly result: T;
   rollback(): void;
 }
 
-export interface NormalizedCache {
-  entry<T = unknown>(address: CacheAddress): FieldSignal<T>;
-  peek<T = unknown>(address: CacheAddress): FieldSignal<T> | undefined;
-  read<T = unknown>(address: CacheAddress): T | undefined;
-  write<T = unknown>(address: CacheAddress, value: T, options?: CacheWriteOptions): void;
-  isFresh(address: CacheAddress): boolean;
-  invalidate(target: CacheInvalidation | readonly CacheInvalidation[]): void;
-  transaction<T>(run: (cache: NormalizedCache) => T): CacheTransaction<T>;
+export interface GraphDataStore {
+  entry<T = unknown>(address: GraphDataAddress): FieldSignal<T>;
+  peek<T = unknown>(address: GraphDataAddress): FieldSignal<T> | undefined;
+  read<T = unknown>(address: GraphDataAddress): T | undefined;
+  write<T = unknown>(address: GraphDataAddress, value: T, options?: GraphDataWriteOptions): void;
+  isFresh(address: GraphDataAddress): boolean;
+  invalidate(target: GraphDataInvalidation | readonly GraphDataInvalidation[]): void;
+  transaction<T>(run: (store: GraphDataStore) => T): GraphDataTransaction<T>;
 
   entity(type: string, id: string): EntityRef;
   normalize(data: GraphQLResult, ttl?: number, metadata?: PlannerMetadata): void;
@@ -80,15 +106,29 @@ export type CachePolicy = "cache-first" | "cache-and-network" | "network-only";
 
 /** Default query execution behavior shared by framework adapters. */
 export interface QueryDefaults {
-  /** How aggressively the session should read from cache before fetching. */
+  /**
+   * How aggressively the session should read from store before fetching.
+   *
+   * @default "cache-and-network"
+   */
   readonly policy?: CachePolicy | undefined;
-  /** Freshness lifetime in milliseconds for normalized results written by the session. */
+  /**
+   * Freshness lifetime in milliseconds for graph data written by the session.
+   *
+   * @default 0
+   * A value of 0 means session writes do not expire by TTL.
+   */
   readonly ttl?: number | undefined;
 }
 
 /** Core query-session execution config. Framework-level options live in adapter config types. */
 export interface QuerySessionConfig extends QueryDefaults {
-  /** Planner metadata generated from the GraphQL schema. Usually injected by generated accessors. */
+  /**
+   * Planner metadata generated from the GraphQL schema. Usually injected by generated accessors.
+   *
+   * @default undefined
+   * Schema-agnostic planning and normalization are used when omitted.
+   */
   readonly metadata?: PlannerMetadata | undefined;
 }
 
@@ -141,8 +181,18 @@ export interface PreparedSelection {
 }
 
 export interface MutationOptions {
-  readonly optimistic?: ((cache: NormalizedCache) => void) | undefined;
-  readonly invalidates?: readonly CacheInvalidation[] | undefined;
+  /**
+   * Optimistic write callback executed before the mutation request.
+   *
+   * @default undefined
+   */
+  readonly optimistic?: ((store: GraphDataStore) => void) | undefined;
+  /**
+   * Store targets marked stale after a successful mutation.
+   *
+   * @default []
+   */
+  readonly invalidates?: readonly GraphDataInvalidation[] | undefined;
 }
 
 export type MutationSource<TInput extends Record<string, unknown>, TData> =

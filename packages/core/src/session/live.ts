@@ -2,21 +2,21 @@ import { createSelectionCollector } from "../collector";
 import { writeOperationResult } from "../cache/materialize";
 import { applyInvalidations } from "../invalidation";
 import { createSignal } from "../signal";
-import type { NormalizedCache, QuerySessionConfig } from "../types";
+import type { GraphDataStore, QuerySessionConfig } from "../types";
 import type { LiveSubscriber } from "../transport";
 import { createPlanCache, operationKey, planCached } from "./operation-cache";
 import type { QuerySession } from "./types";
 
 /** Runtime dependencies and execution settings for a live query session. */
 export interface LiveQuerySessionOptions extends QuerySessionConfig {
-  /** Normalized cache updated every time the live transport emits data. */
-  readonly cache: NormalizedCache;
+  /** Graph data store updated every time the live transport emits data. */
+  readonly store: GraphDataStore;
   /** Transport subscription function used to receive live GraphQL payloads. */
   readonly subscriber: LiveSubscriber;
 }
 
 export function createLiveQuerySession(options: LiveQuerySessionOptions): QuerySession {
-  const { cache, subscriber } = options;
+  const { store, subscriber } = options;
   const ttl = options.ttl ?? 0;
   const metadata = options.metadata;
   const collector = createSelectionCollector();
@@ -63,7 +63,7 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
         unsubscribe = subscriber(
           operation,
           (data) => {
-            writeOperationResult(cache, data, operation.selections, ttl, metadata);
+            writeOperationResult(store, data, operation.selections, ttl, metadata);
             loading(false);
           },
           (reason) => {
@@ -81,7 +81,7 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
   }
 
   return {
-    cache,
+    store,
 
     mount() {
       return collector.register();
@@ -127,7 +127,7 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
     },
 
     invalidate(specs) {
-      applyInvalidations(cache, specs, metadata);
+      applyInvalidations(store, specs, metadata);
       schedule(true);
     },
   };

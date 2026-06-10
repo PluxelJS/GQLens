@@ -1,7 +1,7 @@
 import type {
-  CacheAddress,
+  GraphDataAddress,
   EntityRef,
-  NormalizedCache,
+  GraphDataStore,
   PlannerMetadata,
   SelectionPath,
   SelectionStep,
@@ -21,7 +21,7 @@ interface SlotSnapshot<T> {
 }
 
 export function isSelectionFresh(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   path: SelectionPath,
   metadata: PlannerMetadata | undefined,
 ): boolean {
@@ -34,28 +34,28 @@ export function isSelectionFresh(
   }
 
   if (isListIdentityStep(last)) {
-    return isListPathFresh(cache, path, metadata);
+    return isListPathFresh(store, path, metadata);
   }
 
-  const owner = resolveOwner(cache, path, metadata);
+  const owner = resolveOwner(store, path, metadata);
   if (owner.value === null) {
     return owner.fresh;
   }
   if (owner.value) {
     return (
       owner.fresh &&
-      cache.isFresh({
+      store.isFresh({
         owner: { kind: "entity", ref: owner.value },
         path: path.steps.slice(owner.fieldStartIndex),
       })
     );
   }
 
-  return cache.isFresh({ owner: { kind: "root", root: path.root }, path: path.steps });
+  return store.isFresh({ owner: { kind: "root", root: path.root }, path: path.steps });
 }
 
 function isListPathFresh(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   path: SelectionPath,
   metadata: PlannerMetadata | undefined,
 ): boolean {
@@ -68,19 +68,19 @@ function isListPathFresh(
   const relationSteps = path.steps.slice(0, -1);
   if (relationSteps.length === 1) {
     return isListAddressFresh(
-      cache,
+      store,
       { owner: { kind: "root", root: path.root }, path: relationSteps },
       identityStep?.field,
     );
   }
 
-  const owner = resolveOwnerForSteps(cache, path.root, relationSteps.slice(0, -1), metadata);
+  const owner = resolveOwnerForSteps(store, path.root, relationSteps.slice(0, -1), metadata);
   if (owner.value === null) {
     return owner.fresh;
   }
   if (!owner.value) {
     return isListAddressFresh(
-      cache,
+      store,
       { owner: { kind: "root", root: path.root }, path: relationSteps },
       identityStep?.field,
     );
@@ -89,7 +89,7 @@ function isListPathFresh(
   const ownerRelationStep = fieldStepForPath(ownerRelationSteps) ?? relationStep;
   return owner.fresh
     ? isListAddressFresh(
-        cache,
+        store,
         { owner: { kind: "entity", ref: owner.value }, path: [ownerRelationStep] },
         identityStep?.field,
       )
@@ -97,15 +97,15 @@ function isListPathFresh(
 }
 
 function resolveOwner(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   path: SelectionPath,
   metadata: PlannerMetadata | undefined,
 ): OwnerResolution {
-  return resolveOwnerForSteps(cache, path.root, path.steps.slice(0, -1), metadata);
+  return resolveOwnerForSteps(store, path.root, path.steps.slice(0, -1), metadata);
 }
 
 function resolveOwnerForSteps(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   root: string,
   steps: readonly SelectionStep[],
   metadata: PlannerMetadata | undefined,
@@ -126,7 +126,7 @@ function resolveOwnerForSteps(
     }
 
     if (!ref) {
-      const rootSlot = readAddress<EntityRef | null>(cache, {
+      const rootSlot = readAddress<EntityRef | null>(store, {
         owner: { kind: "root", root },
         path: walked,
       });
@@ -143,7 +143,7 @@ function resolveOwnerForSteps(
       const typeName = metadata?.roots?.[step.field]?.graphQLType;
       const id = step.args?.["id"];
       if (typeName && id !== undefined) {
-        ref = cache.entity(typeName, String(id));
+        ref = store.entity(typeName, String(id));
         fieldStartIndex = index + 1;
         continue;
       }
@@ -156,7 +156,7 @@ function resolveOwnerForSteps(
     if (!relationStep) {
       return { value: undefined, fresh: false, fieldStartIndex };
     }
-    const relationSlot = readAddress<EntityRef | null>(cache, {
+    const relationSlot = readAddress<EntityRef | null>(store, {
       owner: { kind: "entity", ref },
       path: [relationStep],
       facet: "link",
@@ -178,29 +178,29 @@ function resolveOwnerForSteps(
 }
 
 function isListAddressFresh(
-  cache: NormalizedCache,
-  address: CacheAddress,
+  store: GraphDataStore,
+  address: GraphDataAddress,
   identityField: string | undefined,
 ): boolean {
   if (identityField === "refs") {
-    const refs = readAddress<readonly EntityRef[]>(cache, { ...address, facet: "refs" });
+    const refs = readAddress<readonly EntityRef[]>(store, { ...address, facet: "refs" });
     return refs.fresh;
   }
 
   if (identityField === "ids") {
-    const ids = readAddress<readonly string[]>(cache, { ...address, facet: "ids" });
+    const ids = readAddress<readonly string[]>(store, { ...address, facet: "ids" });
     return ids.fresh;
   }
 
-  const relation = readAddress<readonly EntityRef[] | null>(cache, {
+  const relation = readAddress<readonly EntityRef[] | null>(store, {
     ...address,
     facet: address.owner.kind === "entity" ? "link" : address.facet,
   });
   return relation.value === null ? relation.fresh : false;
 }
 
-function readAddress<T>(cache: NormalizedCache, address: CacheAddress): SlotSnapshot<T> {
-  const entry = cache.peek<T | undefined>(address);
+function readAddress<T>(store: GraphDataStore, address: GraphDataAddress): SlotSnapshot<T> {
+  const entry = store.peek<T | undefined>(address);
   if (!entry) {
     return { value: undefined, fresh: false };
   }

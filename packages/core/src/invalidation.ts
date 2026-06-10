@@ -1,11 +1,11 @@
-import type { CacheInvalidation, NormalizedCache, PlannerMetadata } from "./types";
+import type { GraphDataInvalidation, GraphDataStore, PlannerMetadata } from "./types";
 
 export function applyInvalidations(
-  cache: NormalizedCache,
-  invalidations: readonly CacheInvalidation[],
+  store: GraphDataStore,
+  invalidations: readonly GraphDataInvalidation[],
   metadata?: PlannerMetadata,
 ): void {
-  cache.invalidate(
+  store.invalidate(
     invalidations.map((invalidation) =>
       invalidation.kind === "selection" && !invalidation.metadata
         ? { ...invalidation, metadata }

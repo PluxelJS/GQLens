@@ -117,7 +117,7 @@ GQLensProvider
 GQLens 应该把 **cache 共享** 和 **operation selection 边界** 分开：
 
 ```text
-Provider cache     全局共享：entity field / root slot / relation slot 写入同一个 normalized cache
+Provider store     全局共享：entity field / root slot / relation slot 写入同一个 GraphDataStore
 QuerySession       按 scope 隔离：每个 scope 有自己的 collector、inflight、completed、loading、error
 Selection reader   按 hook 实例挂载：只代表当前 hook render 读到的 paths
 ```
@@ -167,7 +167,7 @@ const q = useQuery({ scope: "plugin-overview" });
 未传 scope                            -> hook-local QuerySession
 ```
 
-scope 是 operation boundary，不是 cache namespace。不同 scope 查询到同一 entity 时仍写入同一个 normalized cache。
+scope 是 operation boundary，不是 store namespace。不同 scope 查询到同一 entity 时仍写入同一个 GraphDataStore。
 
 #### 3. Prepared query 用于页面级稳定 operation
 

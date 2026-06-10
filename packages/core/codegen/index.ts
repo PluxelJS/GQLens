@@ -1,10 +1,10 @@
 import { isVariablePlaceholder, stepKey } from "../src/keys";
 import type {
   AlienSignalReader,
-  CacheInvalidation,
+  GraphDataInvalidation,
   EntityRef,
   FieldSignal,
-  NormalizedCache,
+  GraphDataStore,
   PreparedSelection,
   PlannerMetadata,
   SelectionPath,
@@ -43,7 +43,7 @@ export interface SchemaMeta {
 
 export interface AccessorContext {
   readonly root: string;
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   readonly demand: (steps: readonly SelectionStep[]) => void;
   readonly read: <T>(sig: AlienSignalReader<T>) => T;
 }
@@ -129,7 +129,7 @@ function readCachedField(
   ownerResolver: (() => ResolvedOwner | undefined) | undefined,
   cache: Map<string, unknown>,
 ): unknown {
-  const key = cacheFieldKey(steps);
+  const key = graphDataFieldKey(steps);
   if (cache.has(key)) {
     return cache.get(key);
   }
@@ -149,11 +149,11 @@ function readField(
     ctx.demand(steps);
     const owner = ownerResolver?.();
     const entry = owner
-      ? ctx.cache.entry({
+      ? ctx.store.entry({
           owner: { kind: "entity", ref: owner.ref },
           path: scalarPath(owner, steps),
         })
-      : ctx.cache.entry({ owner: { kind: "root", root: ctx.root }, path: steps });
+      : ctx.store.entry({ owner: { kind: "root", root: ctx.root }, path: steps });
     return ctx.read(entry.sig);
   }
 
@@ -184,7 +184,7 @@ function readField(
     }
 
     if (!ownerResolver) {
-      const slot = ctx.cache.entry<EntityRef | null | undefined>({
+      const slot = ctx.store.entry<EntityRef | null | undefined>({
         owner: { kind: "root", root: ctx.root },
         path: steps,
       });
@@ -195,7 +195,7 @@ function readField(
 
       const id = step.args?.["id"];
       if (field.typeName && id !== undefined && !childMeta.isAbstract) {
-        return { ref: ctx.cache.entity(field.typeName, String(id)), fieldSteps: [] };
+        return { ref: ctx.store.entity(field.typeName, String(id)), fieldSteps: [] };
       }
     }
 
@@ -203,9 +203,9 @@ function readField(
     if (owner) {
       const relationStep =
         owner.fieldSteps.length > 0
-          ? { ...step, field: cacheFieldKey([...owner.fieldSteps, step]) }
+          ? { ...step, field: graphDataFieldKey([...owner.fieldSteps, step]) }
           : step;
-      const relation = ctx.cache.entry<EntityRef | null | undefined>({
+      const relation = ctx.store.entry<EntityRef | null | undefined>({
         owner: { kind: "entity", ref: owner.ref },
         path: [relationStep],
         facet: "link",
@@ -213,7 +213,7 @@ function readField(
       const ref = ctx.read<EntityRef | null | undefined>(relation.sig);
       return ref ? { ref, fieldSteps: [] } : undefined;
     }
-    const slot = ctx.cache.entry<EntityRef | undefined>({
+    const slot = ctx.store.entry<EntityRef | undefined>({
       owner: { kind: "root", root: ctx.root },
       path: steps,
     });
@@ -283,9 +283,9 @@ function createListAccessor(
         }
         const relationStep =
           owner.fieldSteps.length > 0
-            ? { ...step, field: cacheFieldKey([...owner.fieldSteps, step]) }
+            ? { ...step, field: graphDataFieldKey([...owner.fieldSteps, step]) }
             : step;
-        const slot = ctx.cache.entry<readonly string[] | readonly EntityRef[] | undefined>({
+        const slot = ctx.store.entry<readonly string[] | readonly EntityRef[] | undefined>({
           owner: { kind: "entity", ref: owner.ref },
           path: [relationStep],
           facet: identityField,
@@ -294,7 +294,7 @@ function createListAccessor(
           slot.sig as AlienSignalReader<readonly string[] | readonly EntityRef[] | undefined>,
         );
       }
-      const entry = ctx.cache.entry<readonly string[] | readonly EntityRef[] | undefined>({
+      const entry = ctx.store.entry<readonly string[] | readonly EntityRef[] | undefined>({
         owner: { kind: "root", root: ctx.root },
         path: steps,
         facet: identityField,
@@ -310,7 +310,7 @@ function createListAccessor(
   };
 }
 
-function cacheFieldKey(steps: readonly SelectionStep[]): string {
+function graphDataFieldKey(steps: readonly SelectionStep[]): string {
   return steps
     .filter((step) => !step.typeCondition)
     .map(stepKey)
@@ -370,7 +370,7 @@ export function defineInvalidation<TQuery extends object>(
   schema: SchemaMeta,
   queryMeta: EntityMeta,
   callback: (q: TQuery) => unknown,
-): CacheInvalidation {
+): GraphDataInvalidation {
   const paths: SelectionPath[] = [];
   const ctx = selectorContext(schema.query.type, paths);
   const query = createAccessorNode<TQuery>(ctx, schema, queryMeta);
@@ -383,10 +383,10 @@ export function defineInvalidation<TQuery extends object>(
 }
 
 function selectorContext(root: string, paths: SelectionPath[]): AccessorContext {
-  const cache = selectorCache();
+  const store = selectorStore();
   return {
     root,
-    cache,
+    store,
     demand(steps) {
       paths.push({ root, steps });
     },
@@ -396,7 +396,7 @@ function selectorContext(root: string, paths: SelectionPath[]): AccessorContext 
   };
 }
 
-function selectorCache(): NormalizedCache {
+function selectorStore(): GraphDataStore {
   return {
     entry: <T = unknown>() => selectorEntry<T>(),
     peek: () => undefined,

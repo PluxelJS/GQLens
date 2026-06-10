@@ -10,7 +10,7 @@
 - Interface / union 通过 `$on.<TypeCondition>` 表达 inline fragment。
 - alias / directive / fragment string / field-level policy 不进入字段链 API。
 - QuerySession 是 selection scope；不同 operation / transport / policy scope 不得混合。
-- NormalizedCache 的响应式单位是 entity field signal 和 root / relation slot。
+- GraphDataStore 的响应式单位是 entity field signal 和 root / relation slot。
 - `q.user({ id })` 返回 accessor，不返回数据对象或对象级 signal。
 - prepared selection 只提前产出 selection path，不替代 runtime discovery，也不是正确性前提。
 - live query 只表示持续传输；普通 query 也是 reactive。
@@ -31,7 +31,7 @@
 | [01-总览](./01-总览.md)                                | 定位、核心公式、系统分层、不变量                          |
 | [02-字段访问](./02-字段访问.md)                        | Accessor Graph、字段函数形态、列表模式、Codegen、AST 插件 |
 | [03-Selection 与查询构建](./03-Selection与查询构建.md) | Selection 收集、QuerySession、合并规则、Planner、查询策略 |
-| [04-Normalized Cache](./04-Normalized-Cache.md)        | 存储模型、路径归一、深层对象规则、接口、一致性            |
+| [04-GraphDataStore](./04-GraphDataStore.md)            | 存储模型、路径归一、深层对象规则、接口、一致性            |
 | [05-写入](./05-写入.md)                                | Mutation、Optimistic Update、Invalidation、冲突处理       |
 | [06-框架适配](./06-框架适配.md)                        | React adapter、Solid adapter、API 对照                    |
 

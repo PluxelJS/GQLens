@@ -25,7 +25,7 @@ export function writeHeader(
     "type SchemaMeta",
   ]);
   const coreTypes = [
-    "CacheInvalidation",
+    "GraphDataInvalidation",
     ...(usesEntityRef(schema) ? ["EntityRef"] : []),
     ...(schema.getMutationType() ? ["MutationOperation"] : []),
     "PreparedSelection",

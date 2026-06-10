@@ -73,7 +73,7 @@ export function writeSelectorBuilders(writer: CodeBlockWriter, type: GraphQLObje
 
   writer
     .write(
-      `export function defineInvalidation(callback: (q: ${nodeName}) => unknown): CacheInvalidation `,
+      `export function defineInvalidation(callback: (q: ${nodeName}) => unknown): GraphDataInvalidation `,
     )
     .block(() => {
       writer.writeLine(
@@ -96,7 +96,7 @@ function writeAccessorCreation(writer: CodeBlockWriter, shape: RuntimeAccessorSh
   writer.writeLine("const ctx: AccessorContext = {");
   writer.indent(() => {
     writer.writeLine(`root: ${quote(shape.type.name)},`);
-    writer.writeLine("cache: state.cache,");
+    writer.writeLine("store: state.store,");
     writer.writeLine(`demand: (steps) => state.demand(${quote(shape.type.name)}, steps),`);
     writer.writeLine("read: state.read,");
   });

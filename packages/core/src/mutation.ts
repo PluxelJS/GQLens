@@ -2,19 +2,19 @@ import { applyInvalidations } from "./invalidation";
 import { readGraphQLData, type Fetcher } from "./transport";
 import { isEntityObject } from "./guards";
 import type {
-  CacheInvalidation,
+  GraphDataInvalidation,
   MutationOptions,
   MutationSource,
-  NormalizedCache,
+  GraphDataStore,
   PlannerMetadata,
 } from "./types";
 
 export interface MutationRunnerConfig<TInput extends Record<string, unknown>, TData> {
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   readonly mutation: MutationSource<TInput, TData>;
   readonly fetcher: Fetcher;
   readonly metadata?: PlannerMetadata | undefined;
-  invalidate?(invalidations: readonly CacheInvalidation[], metadata?: PlannerMetadata): void;
+  invalidate?(invalidations: readonly GraphDataInvalidation[], metadata?: PlannerMetadata): void;
 }
 
 export function createMutationRunner<TInput extends Record<string, unknown>, TData>(
@@ -24,15 +24,15 @@ export function createMutationRunner<TInput extends Record<string, unknown>, TDa
   const metadata = config.metadata ?? mutationMetadata(config.mutation);
   const invalidate =
     config.invalidate ??
-    ((invalidations: readonly CacheInvalidation[]) => {
-      applyInvalidations(config.cache, invalidations, metadata);
+    ((invalidations: readonly GraphDataInvalidation[]) => {
+      applyInvalidations(config.store, invalidations, metadata);
     });
 
   return async (input): Promise<TData> => {
     const invalidates = input.invalidates ?? [];
     const transaction = input.optimistic
-      ? config.cache.transaction((cache) => {
-          input.optimistic?.(cache);
+      ? config.store.transaction((store) => {
+          input.optimistic?.(store);
         })
       : undefined;
 
@@ -41,7 +41,7 @@ export function createMutationRunner<TInput extends Record<string, unknown>, TDa
       if (invalidates.length > 0) {
         invalidate(invalidates, metadata);
       }
-      normalizeMutationResult(config.cache, data, metadata);
+      normalizeMutationResult(config.store, data, metadata);
       return data;
     } catch (error) {
       transaction?.rollback();
@@ -77,15 +77,15 @@ function mutationFunction<TInput extends Record<string, unknown>, TData>(
 }
 
 function normalizeMutationResult(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   data: unknown,
   metadata: PlannerMetadata | undefined,
 ): void {
   if (isEntityObject(data)) {
-    cache.normalize({ mutation: data }, 0, mutationResultMetadata(data, metadata));
+    store.normalize({ mutation: data }, 0, mutationResultMetadata(data, metadata));
     return;
   }
-  cache.normalize((data ?? {}) as Record<string, unknown>, 0, metadata);
+  store.normalize((data ?? {}) as Record<string, unknown>, 0, metadata);
 }
 
 function mutationResultMetadata(

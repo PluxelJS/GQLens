@@ -5,7 +5,7 @@ import {
   createLiveQuerySession,
   createLiveTransport,
   createMutationRunner,
-  createNormalizedCache,
+  createGraphDataStore,
   createQuerySession,
   watchSignal,
   type AlienSignalReader,
@@ -13,7 +13,7 @@ import {
   type LiveSubscriber,
   type MutationOptions,
   type MutationSource,
-  type NormalizedCache,
+  type GraphDataStore,
   type PreparedSelection,
   type QuerySession,
   type QuerySessionConfig,
@@ -22,21 +22,49 @@ import {
 
 /** Live transport wiring used by createLiveQuery. */
 export interface LiveConfig {
-  /** Custom live subscriber. When omitted, a WebSocket live transport is created from endpoint. */
+  /**
+   * Custom live subscriber.
+   *
+   * @default undefined
+   * A WebSocket live transport is created from endpoint when omitted.
+   */
   readonly subscriber?: LiveSubscriber | undefined;
-  /** Cleanup function for a custom live subscriber. Ignored for the built-in WebSocket transport. */
+  /**
+   * Cleanup function for a custom live subscriber. Ignored for the built-in WebSocket transport.
+   *
+   * @default undefined
+   */
   readonly close?: (() => void) | undefined;
 }
 
 /** Query runtime options for Solid entrypoints. */
 export interface QueryConfig extends QuerySessionConfig {
-  /** GraphQL HTTP endpoint used when fetcher is not provided. Also seeds the built-in live transport. */
+  /**
+   * GraphQL HTTP endpoint used when fetcher is not provided. Also seeds the built-in live transport.
+   *
+   * @default "/graphql"
+   */
   readonly endpoint?: string | undefined;
-  /** Normalized cache instance. A call-local cache is created when omitted. */
-  readonly cache?: NormalizedCache | undefined;
-  /** Custom query fetcher. Takes precedence over endpoint for HTTP operations. */
+  /**
+   * Graph data store instance.
+   *
+   * @default undefined
+   * A call-local store is created when omitted.
+   */
+  readonly store?: GraphDataStore | undefined;
+  /**
+   * Custom query fetcher. Takes precedence over endpoint for HTTP operations.
+   *
+   * @default undefined
+   * The endpoint-backed HTTP fetcher is used when omitted.
+   */
   readonly fetcher?: Fetcher | undefined;
-  /** Live-query transport configuration. */
+  /**
+   * Live-query transport configuration.
+   *
+   * @default undefined
+   * The endpoint-backed WebSocket live transport is used when omitted.
+   */
   readonly live?: LiveConfig | undefined;
 }
 
@@ -44,27 +72,40 @@ export interface SolidSessionState {
   readonly loading: () => boolean;
   readonly error: () => Error | null;
   readonly session: QuerySession;
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   demand(root: string, steps: readonly SelectionStep[]): void;
   read<T>(sig: AlienSignalReader<T>): T;
 }
 
 /** Mutation runtime options for createMutation. */
 export interface MutationConfig {
-  /** GraphQL HTTP endpoint used when fetcher is not provided. */
+  /**
+   * GraphQL HTTP endpoint used when fetcher is not provided.
+   *
+   * @default "/graphql"
+   */
   readonly endpoint?: string | undefined;
-  /** Normalized cache updated by mutation results and optimistic writes. */
-  readonly cache?: NormalizedCache | undefined;
-  /** Custom mutation fetcher. Takes precedence over endpoint. */
+  /**
+   * Graph data store updated by mutation results and optimistic writes.
+   *
+   * @default undefined
+   */
+  readonly store?: GraphDataStore | undefined;
+  /**
+   * Custom mutation fetcher. Takes precedence over endpoint.
+   *
+   * @default undefined
+   * The endpoint-backed HTTP fetcher is used when omitted.
+   */
   readonly fetcher?: Fetcher | undefined;
 }
 
 const defaultEndpoint = "/graphql";
 
 export function createQuery(config: QueryConfig = {}): SolidSessionState {
-  const cache = config.cache ?? createNormalizedCache();
+  const store = config.store ?? createGraphDataStore();
   const fetcher = config.fetcher ?? createFetchTransport(config.endpoint ?? defaultEndpoint);
-  const session = createQuerySession({ cache, fetcher, ...querySessionConfig(config) });
+  const session = createQuerySession({ store, fetcher, ...querySessionConfig(config) });
   const reader = createSolidReaderScope(session);
 
   if (getOwner()) {
@@ -79,17 +120,17 @@ export function createQuery(config: QueryConfig = {}): SolidSessionState {
     loading: () => reader.read(session.loading),
     error: () => reader.read(session.error),
     session,
-    cache,
+    store,
     demand: reader.demand,
     read: reader.read,
   };
 }
 
 export function createLiveQuery(config: QueryConfig = {}): SolidSessionState {
-  const cache = config.cache ?? createNormalizedCache();
+  const store = config.store ?? createGraphDataStore();
   const [subscribe, close] = resolveLiveTransport(config);
   const session = createLiveQuerySession({
-    cache,
+    store,
     subscriber: subscribe,
     ...querySessionConfig(config),
   });
@@ -108,7 +149,7 @@ export function createLiveQuery(config: QueryConfig = {}): SolidSessionState {
     loading: () => reader.read(session.loading),
     error: () => reader.read(session.error),
     session,
-    cache,
+    store,
     demand: reader.demand,
     read: reader.read,
   };
@@ -147,9 +188,9 @@ export function createMutation<TInput extends Record<string, unknown>, TData>(
   mutation: MutationSource<TInput, TData>,
   config: MutationConfig = {},
 ): (input: TInput & MutationOptions) => Promise<TData> {
-  const cache = config.cache ?? createNormalizedCache();
+  const store = config.store ?? createGraphDataStore();
   const fetcher = config.fetcher ?? createFetchTransport(config.endpoint ?? defaultEndpoint);
-  return createMutationRunner({ cache, mutation, fetcher });
+  return createMutationRunner({ store, mutation, fetcher });
 }
 
 interface SolidReaderScope {

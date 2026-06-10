@@ -1,12 +1,12 @@
 import { relationSlotKey, slotKey, stepKey } from "../keys";
 import type { EntityRef, SelectionStep } from "../types";
 
-export type CacheSlotSuffix = "ids" | "refs";
+export type GraphDataSlotSuffix = "ids" | "refs";
 
 export function rootSlotKey(
   root: string,
   steps: readonly SelectionStep[],
-  suffix?: CacheSlotSuffix,
+  suffix?: GraphDataSlotSuffix,
 ): string {
   return slotKey(root, steps, suffix);
 }
@@ -18,12 +18,12 @@ export function entityFieldKey(ref: EntityRef, key: string): string {
 export function entityRelationKey(
   ref: EntityRef,
   step: SelectionStep,
-  suffix?: CacheSlotSuffix,
+  suffix?: GraphDataSlotSuffix,
 ): string {
   return relationSlotKey(ref, step, suffix);
 }
 
-export function cacheFieldKey(steps: readonly SelectionStep[]): string {
+export function graphDataFieldKey(steps: readonly SelectionStep[]): string {
   return steps
     .filter((step) => !step.typeCondition)
     .map(stepKey)
@@ -35,7 +35,7 @@ export function fieldStepForPath(steps: readonly SelectionStep[]): SelectionStep
   if (!last) {
     return undefined;
   }
-  return steps.length === 1 ? last : { field: cacheFieldKey(steps) };
+  return steps.length === 1 ? last : { field: graphDataFieldKey(steps) };
 }
 
 export function ownerFieldSteps(
@@ -45,7 +45,7 @@ export function ownerFieldSteps(
   return steps.slice(ownerFieldStartIndex);
 }
 
-export function suffixedSlotKey(key: string, suffix: CacheSlotSuffix): string {
+export function suffixedSlotKey(key: string, suffix: GraphDataSlotSuffix): string {
   return `${key}.${suffix}`;
 }
 

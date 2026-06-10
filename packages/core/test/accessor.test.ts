@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createNormalizedCache, type SelectionStep } from "@gqlens/core";
+import { createGraphDataStore, type SelectionStep } from "@gqlens/core";
 import {
   bindSelection,
   createAccessorNode,
@@ -146,7 +146,7 @@ const schemaMeta: SchemaMeta = {
 
 describe("createAccessorNode", () => {
   test("declares demand and reads entity fields through root slots", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
@@ -156,7 +156,7 @@ describe("createAccessorNode", () => {
   });
 
   test("reads __typename through the same scalar accessor path", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({ user: { __typename: "User", id: "1", name: "Alice" } });
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
@@ -168,7 +168,7 @@ describe("createAccessorNode", () => {
   });
 
   test("uses root id args as an entity resolver before a slot exists", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cacheField(cache, cache.entity("User", "2"), "name").sig("Bob");
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
@@ -178,7 +178,7 @@ describe("createAccessorNode", () => {
   });
 
   test("prefers cached null root slots over root id entity shortcuts", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cacheField(cache, cache.entity("User", "2"), "name").sig("stale Bob");
     cacheSlot(cache, 'Query.user({"id":"2"})').sig(null);
@@ -189,7 +189,7 @@ describe("createAccessorNode", () => {
   });
 
   test("reads relation list ids from the owning entity field", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({
       viewer: {
@@ -209,7 +209,7 @@ describe("createAccessorNode", () => {
   });
 
   test("reads embedded value object leaves from the owning entity field path", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cacheField(cache, cache.entity("User", "1"), "status.source.kind").sig("hmr");
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
@@ -226,7 +226,7 @@ describe("createAccessorNode", () => {
   });
 
   test("reuses relation and list accessor objects without caching scalar reads", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
@@ -247,7 +247,7 @@ describe("createAccessorNode", () => {
   });
 
   test("keeps accessor fields non-enumerable to avoid accidental reads", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({
       viewer: {
@@ -274,7 +274,7 @@ describe("createAccessorNode", () => {
   });
 
   test("returns undefined for missing relation list ids", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({ viewer: { __typename: "User", id: "1", name: "Alice" } });
     const query = createAccessorNode<QueryNode>(ctx(cache, demands), schemaMeta, schemaMeta.query);
@@ -284,7 +284,7 @@ describe("createAccessorNode", () => {
   });
 
   test("reads abstract list refs and declares refs demand", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({
       search: [
@@ -306,7 +306,7 @@ describe("createAccessorNode", () => {
   });
 
   test("reads inline fragment fields only when the cached type matches", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const demands: readonly SelectionStep[][] = [];
     cache.normalize({
       pet: { __typename: "Cat", id: "1", name: "Miso", meows: true },
@@ -455,12 +455,12 @@ describe("createAccessorNode", () => {
 });
 
 function ctx(
-  cache: ReturnType<typeof createNormalizedCache>,
+  cache: ReturnType<typeof createGraphDataStore>,
   demands: readonly SelectionStep[][],
 ): AccessorContext {
   return {
     root: "Query",
-    cache,
+    store: cache,
     demand(steps) {
       (demands as SelectionStep[][]).push([...steps]);
     },

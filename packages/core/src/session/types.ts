@@ -1,8 +1,8 @@
 import type { ReaderHandle } from "../collector";
-import type { CacheInvalidation, NormalizedCache, SelectionPath } from "../types";
+import type { GraphDataInvalidation, GraphDataStore, SelectionPath } from "../types";
 
 export interface QuerySession {
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   mount(): ReaderHandle;
   unmount(reader: ReaderHandle): void;
   begin(reader: ReaderHandle): void;
@@ -14,5 +14,5 @@ export interface QuerySession {
   readonly error: () => Error | null;
   schedule(): void;
   refetch(): void;
-  invalidate(specs: readonly CacheInvalidation[]): void;
+  invalidate(specs: readonly GraphDataInvalidation[]): void;
 }

@@ -16,15 +16,15 @@ import {
   createLiveQuerySession,
   createLiveTransport,
   createMutationRunner,
-  createNormalizedCache,
+  createGraphDataStore,
   createQuerySession,
   type AlienSignalReader,
-  type CacheInvalidation,
+  type GraphDataInvalidation,
   type Fetcher,
   type LiveSubscriber,
   type MutationOptions,
   type MutationSource,
-  type NormalizedCache,
+  type GraphDataStore,
   type PlannerMetadata,
   type QuerySession,
   type QuerySessionConfig,
@@ -37,29 +37,66 @@ import { createSessionRegistry, type SessionLease, type SessionRequest } from ".
 
 /** Live transport wiring used by useLiveQuery. */
 export interface LiveConfig {
-  /** Custom live subscriber. When omitted, a WebSocket live transport is created from endpoint. */
+  /**
+   * Custom live subscriber.
+   *
+   * @default undefined
+   * A WebSocket live transport is created from endpoint when omitted.
+   */
   readonly subscriber?: LiveSubscriber | undefined;
-  /** Cleanup function for a custom live subscriber. Ignored for the built-in WebSocket transport. */
+  /**
+   * Cleanup function for a custom live subscriber. Ignored for the built-in WebSocket transport.
+   *
+   * @default undefined
+   */
   readonly close?: (() => void) | undefined;
 }
 
 /** Provider-level runtime configuration shared by all GQLens React hooks. */
 export interface GQLensConfig {
-  /** GraphQL HTTP endpoint used when fetcher is not provided. Also seeds the built-in live transport. */
+  /**
+   * GraphQL HTTP endpoint used when fetcher is not provided. Also seeds the built-in live transport.
+   *
+   * @default "/graphql"
+   */
   readonly endpoint?: string | undefined;
-  /** Normalized cache instance. A provider-local cache is created when omitted. */
-  readonly cache?: NormalizedCache | undefined;
-  /** Custom query/mutation fetcher. Takes precedence over endpoint for HTTP operations. */
+  /**
+   * Graph data store instance.
+   *
+   * @default undefined
+   * A provider-local store is created when omitted.
+   */
+  readonly store?: GraphDataStore | undefined;
+  /**
+   * Custom query/mutation fetcher. Takes precedence over endpoint for HTTP operations.
+   *
+   * @default undefined
+   * The endpoint-backed HTTP fetcher is used when omitted.
+   */
   readonly fetcher?: Fetcher | undefined;
-  /** Live-query transport configuration. */
+  /**
+   * Live-query transport configuration.
+   *
+   * @default undefined
+   * The endpoint-backed WebSocket live transport is used when omitted.
+   */
   readonly live?: LiveConfig | undefined;
-  /** Default query behavior for useQuery and useLiveQuery. */
+  /**
+   * Default query behavior for useQuery and useLiveQuery.
+   *
+   * @default { policy: "cache-and-network", ttl: 0 }
+   */
   readonly query?: QueryDefaults | undefined;
 }
 
 /** Hook-level query options. */
 export interface QueryConfig extends QuerySessionConfig {
-  /** Share a session between hooks with the same scope and query options. Omit for an isolated hook session. */
+  /**
+   * Share a session between hooks with the same scope and query options.
+   *
+   * @default undefined
+   * Omit for an isolated hook session.
+   */
   readonly scope?: string | undefined;
 }
 
@@ -67,18 +104,18 @@ export interface SessionState {
   readonly loading: boolean;
   readonly error: Error | null;
   readonly session: QuerySession;
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   demand(root: string, steps: readonly SelectionStep[]): void;
   read<T>(sig: AlienSignalReader<T>): T;
 }
 
 interface GQLensRuntime {
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   readonly queryDefaults: QueryDefaults;
   readonly fetcher: Fetcher;
   session(config: SessionRequest): SessionLease;
   liveSession(config: SessionRequest): SessionLease;
-  invalidate(specs: readonly CacheInvalidation[], metadata?: PlannerMetadata): void;
+  invalidate(specs: readonly GraphDataInvalidation[], metadata?: PlannerMetadata): void;
 }
 
 const ConfigContext = createContext<GQLensRuntime | null>(null);
@@ -89,7 +126,7 @@ export function GQLensProvider(props: {
   readonly config: GQLensConfig;
   readonly children: ReactNode;
 }): ReactElement {
-  const cache = useMemo(() => props.config.cache ?? createNormalizedCache(), [props.config.cache]);
+  const store = useMemo(() => props.config.store ?? createGraphDataStore(), [props.config.store]);
   const fetcher = useMemo(
     () => props.config.fetcher ?? createFetchTransport(props.config.endpoint ?? defaultEndpoint),
     [props.config.fetcher, props.config.endpoint],
@@ -97,13 +134,13 @@ export function GQLensProvider(props: {
   const [subscribe, closeLive] = useLiveTransportConfig(props.config);
   const runtime = useMemo<GQLensRuntime>(() => {
     const sessions = createSessionRegistry((config) =>
-      createQuerySession({ cache, fetcher, ...config }),
+      createQuerySession({ store, fetcher, ...config }),
     );
     const liveSessions = createSessionRegistry((config) =>
-      createLiveQuerySession({ cache, subscriber: subscribe, ...config }),
+      createLiveQuerySession({ store, subscriber: subscribe, ...config }),
     );
     return {
-      cache,
+      store,
       queryDefaults: props.config.query ?? {},
       fetcher,
 
@@ -115,8 +152,8 @@ export function GQLensProvider(props: {
         return liveSessions.acquire(config);
       },
 
-      invalidate(specs: readonly CacheInvalidation[], metadata?: PlannerMetadata): void {
-        applyInvalidations(cache, specs, metadata);
+      invalidate(specs: readonly GraphDataInvalidation[], metadata?: PlannerMetadata): void {
+        applyInvalidations(store, specs, metadata);
         for (const session of sessions.values()) {
           session.refetch();
         }
@@ -125,7 +162,7 @@ export function GQLensProvider(props: {
         }
       },
     };
-  }, [cache, fetcher, props.config.query, subscribe]);
+  }, [store, fetcher, props.config.query, subscribe]);
 
   useEffect(() => closeLive, [closeLive]);
 
@@ -173,7 +210,7 @@ function useSessionState(mode: "query" | "live", config: QueryConfig = {}): Sess
       return reader.read(lease.session.error);
     },
     session: lease.session,
-    cache: global.cache,
+    store: global.store,
     demand: reader.demand,
     read: reader.read,
   };
@@ -202,12 +239,12 @@ export function useMutation<TInput extends Record<string, unknown>, TData>(
   const runMutation = useMemo(
     () =>
       createMutationRunner({
-        cache: global.cache,
+        store: global.store,
         mutation,
         fetcher: global.fetcher,
         invalidate: global.invalidate,
       }),
-    [global.cache, global.fetcher, global.invalidate, mutation],
+    [global.store, global.fetcher, global.invalidate, mutation],
   );
 
   return useCallback(

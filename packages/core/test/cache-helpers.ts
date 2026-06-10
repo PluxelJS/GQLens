@@ -1,21 +1,21 @@
-import type { CacheAddress, EntityRef, FieldSignal, NormalizedCache } from "@gqlens/core";
+import type { GraphDataAddress, EntityRef, FieldSignal, GraphDataStore } from "@gqlens/core";
 
 type TestSlotValue = EntityRef | readonly EntityRef[] | readonly string[] | null | undefined;
 
 export function cacheField<T = unknown>(
-  cache: NormalizedCache,
+  cache: GraphDataStore,
   ref: EntityRef,
   key: string,
 ): FieldSignal<T> {
   return cache.entry<T>({ owner: { kind: "entity", ref }, path: [{ field: key }] });
 }
 
-export function cacheSlot<T = TestSlotValue>(cache: NormalizedCache, key: string): FieldSignal<T> {
+export function cacheSlot<T = TestSlotValue>(cache: GraphDataStore, key: string): FieldSignal<T> {
   return cache.entry<T>(slotAddress(key));
 }
 
 export function peekCacheField<T = unknown>(
-  cache: NormalizedCache,
+  cache: GraphDataStore,
   ref: EntityRef,
   key: string,
 ): FieldSignal<T> | undefined {
@@ -23,21 +23,21 @@ export function peekCacheField<T = unknown>(
 }
 
 export function peekCacheSlot<T = TestSlotValue>(
-  cache: NormalizedCache,
+  cache: GraphDataStore,
   key: string,
 ): FieldSignal<T> | undefined {
   return cache.peek<T>(slotAddress(key));
 }
 
-export function isCacheFieldFresh(cache: NormalizedCache, ref: EntityRef, key: string): boolean {
+export function isCacheFieldFresh(cache: GraphDataStore, ref: EntityRef, key: string): boolean {
   return cache.isFresh({ owner: { kind: "entity", ref }, path: [{ field: key }] });
 }
 
-export function isCacheSlotFresh(cache: NormalizedCache, key: string): boolean {
+export function isCacheSlotFresh(cache: GraphDataStore, key: string): boolean {
   return cache.isFresh(slotAddress(key));
 }
 
-function slotAddress(key: string): CacheAddress {
+function slotAddress(key: string): GraphDataAddress {
   const { base, facet } = splitFacet(key);
   const entity = /^([^:.]+):([^.]+)\.(.+)$/.exec(base);
   if (entity) {

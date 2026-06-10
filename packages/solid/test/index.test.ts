@@ -2,7 +2,7 @@ import { describe, expect, test, vi, afterEach } from "vitest";
 import { createRoot } from "solid-js";
 import { createQuery, createLiveQuery, createMutation, createPreparedQuery } from "@gqlens/solid";
 import {
-  createNormalizedCache,
+  createGraphDataStore,
   createSignal,
   type Fetcher,
   type LiveSubscriber,
@@ -31,7 +31,7 @@ describe("Solid adapter", () => {
       expect(state.loading()).toBe(false);
       expect(state.error()).toBeNull();
       expect(state.session).toBeDefined();
-      expect(state.cache).toBeDefined();
+      expect(state.store).toBeDefined();
     });
 
     test("accepts custom config", () => {
@@ -126,14 +126,14 @@ describe("Solid adapter", () => {
     });
 
     test("accepts an external live subscriber", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const listeners: Array<(data: unknown) => void> = [];
       const liveSubscriber = vi.fn<LiveSubscriber>((_, onData) => {
         listeners.push(onData);
         return () => undefined;
       });
       const state = createLiveQuery({
-        cache,
+        store: cache,
         live: { subscriber: liveSubscriber },
         metadata: {
           roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
@@ -153,22 +153,22 @@ describe("Solid adapter", () => {
 
   describe("createMutation", () => {
     test("returns a callable async function", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const mutate = createMutation(
         async (input: { name: string }) => ({ success: true, ...input }),
-        { cache },
+        { store: cache },
       );
 
       expect(typeof mutate).toBe("function");
     });
 
     test("normalizes server response into cache", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const mutate = createMutation(
         async (input: { name: string }) => ({
           renameUser: { __typename: "User", id: "1", name: input.name },
         }),
-        { cache },
+        { store: cache },
       );
 
       await mutate({ name: "Bob" });
@@ -178,7 +178,7 @@ describe("Solid adapter", () => {
     });
 
     test("executes mutation operation descriptors", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const fetcher = vi.fn<Fetcher>(async () => ({
         renameUser: { __typename: "User", id: "1", name: "Alice" },
       }));
@@ -192,7 +192,7 @@ describe("Solid adapter", () => {
             name: input.name,
           }),
         },
-        { cache, fetcher },
+        { store: cache, fetcher },
       );
 
       await mutate({ id: "1", name: "Alice" });
@@ -207,7 +207,7 @@ describe("Solid adapter", () => {
     });
 
     test("accepts mutation options object", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const fetcher = vi.fn<Fetcher>(async () => ({
         renameUser: { __typename: "User", id: "1", name: "Alice" },
       }));
@@ -217,7 +217,7 @@ describe("Solid adapter", () => {
           query: "mutation renameUser($id: ID!) { renameUser(id: $id) { id __typename name } }",
           variables: (input: { id: string }) => ({ id: input.id }),
         },
-        { cache, fetcher },
+        { store: cache, fetcher },
       );
 
       await mutate({ id: "1" });
@@ -227,12 +227,12 @@ describe("Solid adapter", () => {
     });
 
     test("runs optimistic update callback", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const mutate = createMutation(
         async (input: { name: string }) => ({
           renameUser: { __typename: "User", id: "1", name: input.name },
         }),
-        { cache },
+        { store: cache },
       );
 
       let optimisticRan = false;
@@ -255,12 +255,12 @@ describe("Solid adapter", () => {
     });
 
     test("applies invalidates after successful mutation", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const mutate = createMutation(
         async (input: { name: string }) => ({
           renameUser: { __typename: "User", id: "1", name: input.name },
         }),
-        { cache },
+        { store: cache },
       );
 
       await mutate({
@@ -280,13 +280,13 @@ describe("Solid adapter", () => {
     });
 
     test("accepts selector invalidation targets", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const refs = cacheSlot<readonly { type: string; id: string }[]>(
         cache,
         'Query.search({"text":"a"}).refs',
       );
       refs.sig([{ type: "User", id: "1" }]);
-      const mutate = createMutation(async () => ({ ok: true }), { cache });
+      const mutate = createMutation(async () => ({ ok: true }), { store: cache });
 
       await mutate({
         invalidates: [
@@ -304,7 +304,7 @@ describe("Solid adapter", () => {
     });
 
     test("rolls back optimistic selector invalidations with descriptor metadata", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
       const fetcher = vi.fn<Fetcher>(async () => {
         throw new Error("server rejected");
@@ -319,7 +319,7 @@ describe("Solid adapter", () => {
           },
           variables: (input: { id: string }) => ({ id: input.id }),
         },
-        { cache, fetcher },
+        { store: cache, fetcher },
       );
 
       await expect(
@@ -344,7 +344,7 @@ describe("Solid adapter", () => {
     });
 
     test("rolls back optimistic writes on error", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       // Pre-populate cache
       cache.normalize({
         renameUser: { __typename: "User", id: "1", name: "original" },
@@ -354,7 +354,7 @@ describe("Solid adapter", () => {
         async () => {
           throw new Error("server rejected");
         },
-        { cache },
+        { store: cache },
       );
 
       await expect(
@@ -382,11 +382,11 @@ describe("Solid adapter", () => {
 
 describe("lifecycle", () => {
   test("dispose unregisters reader and stops signal watches", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const sig = createSignal("hello");
 
     createRoot((dispose) => {
-      const state = createQuery({ cache });
+      const state = createQuery({ store: cache });
       const unmountSpy = vi.spyOn(state.session, "unmount");
       expect(state.read(sig)).toBe("hello");
 
@@ -397,14 +397,14 @@ describe("lifecycle", () => {
   });
 
   test("dispose allows re-creation of a new reader scope", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
 
     createRoot((dispose) => {
-      const state = createQuery({ cache });
+      const state = createQuery({ store: cache });
       state.demand("Query", [{ field: "viewer" }]);
       dispose();
 
-      const state2 = createQuery({ cache });
+      const state2 = createQuery({ store: cache });
       const unmountSpy2 = vi.spyOn(state2.session, "unmount");
       state2.demand("Query", [{ field: "user" }]);
       expect(unmountSpy2).not.toHaveBeenCalled();
@@ -413,11 +413,11 @@ describe("lifecycle", () => {
   });
 
   test("dispose cleans up signal subscription", () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const sig = createSignal("first");
 
     createRoot((dispose) => {
-      const state = createQuery({ cache });
+      const state = createQuery({ store: cache });
       expect(state.read(sig)).toBe("first");
 
       dispose();

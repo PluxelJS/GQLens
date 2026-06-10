@@ -165,12 +165,12 @@ q.search({ text }).refs;
 GQLens 使用三类稳定 owner。
 
 ```ts
-type CacheOwner =
+type GraphDataOwner =
   | { readonly kind: "entity"; readonly ref: EntityRef }
   | { readonly kind: "root"; readonly root: string; readonly steps: readonly SelectionStep[] }
   | {
       readonly kind: "embedded";
-      readonly owner: CacheOwner;
+      readonly owner: GraphDataOwner;
       readonly path: readonly SelectionStep[];
     };
 ```

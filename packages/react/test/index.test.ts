@@ -10,7 +10,7 @@ import {
   type SessionState,
 } from "@gqlens/react";
 import {
-  createNormalizedCache,
+  createGraphDataStore,
   createSignal,
   type Fetcher,
   type LiveSubscriber,
@@ -48,7 +48,7 @@ describe("React adapter", () => {
       expect(result.current.loading).toBe(false);
       expect(result.current.error).toBeNull();
       expect(result.current.session).toBeDefined();
-      expect(result.current.cache).toBeDefined();
+      expect(result.current.store).toBeDefined();
     });
 
     test("throws without provider", () => {
@@ -85,7 +85,7 @@ describe("React adapter", () => {
         wrapper: wrapper(),
       });
 
-      expect(result.current[0].cache).toBe(result.current[1].cache);
+      expect(result.current[0].store).toBe(result.current[1].store);
       expect(result.current[0].session).not.toBe(result.current[1].session);
     });
 
@@ -97,7 +97,7 @@ describe("React adapter", () => {
         },
       );
 
-      expect(result.current[0].cache).toBe(result.current[1].cache);
+      expect(result.current[0].store).toBe(result.current[1].store);
       expect(result.current[0].session).toBe(result.current[1].session);
     });
 
@@ -107,7 +107,7 @@ describe("React adapter", () => {
         { wrapper: wrapper() },
       );
 
-      expect(result.current[0].cache).toBe(result.current[1].cache);
+      expect(result.current[0].store).toBe(result.current[1].store);
       expect(result.current[0].session).not.toBe(result.current[1].session);
     });
 
@@ -161,7 +161,7 @@ describe("React adapter", () => {
       expect(result.current.loading).toBe(false);
       expect(result.current.error).toBeNull();
       expect(result.current.session).toBeDefined();
-      expect(result.current.cache).toBeDefined();
+      expect(result.current.store).toBeDefined();
     });
 
     test("accepts an external live subscriber", async () => {
@@ -193,7 +193,7 @@ describe("React adapter", () => {
       });
 
       await waitFor(() => {
-        expect(cacheField(result.current.cache, { type: "User", id: "1" }, "name").sig()).toBe(
+        expect(cacheField(result.current.store, { type: "User", id: "1" }, "name").sig()).toBe(
           "Alice",
         );
       });
@@ -304,7 +304,7 @@ describe("React adapter", () => {
     });
 
     test("schedules again when data reveals a dependent selection", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const metadata = {
         roots: {
           users: { returnsEntity: true, returnsList: true, graphQLType: "User" },
@@ -333,7 +333,7 @@ describe("React adapter", () => {
           demandFirstUserName(state);
           return state.loading;
         },
-        { wrapper: wrapper({ cache, fetcher }) },
+        { wrapper: wrapper({ store: cache, fetcher }) },
       );
 
       await waitFor(() => {
@@ -409,7 +409,7 @@ describe("React adapter", () => {
         ],
       });
 
-      expect(cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig()).toBe(
+      expect(cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig()).toBe(
         "Alice",
       );
     });
@@ -454,7 +454,7 @@ describe("React adapter", () => {
 
       await waitFor(() => {
         expect(
-          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+          cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig(),
         ).toBe("Alice");
       });
 
@@ -471,7 +471,7 @@ describe("React adapter", () => {
 
       await waitFor(() => {
         expect(
-          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+          cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig(),
         ).toBe("Fresh Alice");
       });
       expect(fetcher).toHaveBeenCalledTimes(3);
@@ -514,7 +514,7 @@ describe("React adapter", () => {
 
       await waitFor(() => {
         expect(
-          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+          cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig(),
         ).toBe("Alice");
       });
 
@@ -533,14 +533,14 @@ describe("React adapter", () => {
 
       await waitFor(() => {
         expect(
-          cacheField(result.current.state.cache, { type: "User", id: "1" }, "name").sig(),
+          cacheField(result.current.state.store, { type: "User", id: "1" }, "name").sig(),
         ).toBe("Fresh Alice");
       });
       expect(fetcher).toHaveBeenCalledTimes(3);
     });
 
     test("rolls back optimistic selector invalidations with descriptor metadata", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       cacheField(cache, cache.entity("User", "1"), "name").sig("Original");
       const fetcher = vi.fn<Fetcher>(async () => {
         throw new Error("server rejected");
@@ -557,7 +557,7 @@ describe("React adapter", () => {
             metadata,
             variables: (input: { id: string }) => ({ id: input.id }),
           }),
-        { wrapper: wrapper({ cache, fetcher }) },
+        { wrapper: wrapper({ store: cache, fetcher }) },
       );
 
       await expect(
@@ -584,9 +584,9 @@ describe("React adapter", () => {
 
   describe("lifecycle", () => {
     test("unmounts reader on component cleanup", () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const { result, unmount } = renderHook(() => useQuery(), {
-        wrapper: wrapper({ cache }),
+        wrapper: wrapper({ store: cache }),
       });
       const session = result.current.session;
       const unmountSpy = vi.spyOn(session, "unmount");
@@ -598,13 +598,13 @@ describe("React adapter", () => {
     });
 
     test("strict mode remounts reader correctly", async () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const fetcher = vi.fn<Fetcher>(async () => ({
         viewer: { __typename: "User", id: "1", name: "Alice" },
       }));
 
       function StrictWrapper({ children }: { children: React.ReactNode }) {
-        return createElement(StrictMode, null, wrapper({ cache, fetcher })({ children }));
+        return createElement(StrictMode, null, wrapper({ store: cache, fetcher })({ children }));
       }
 
       renderHook(
@@ -703,10 +703,10 @@ describe("React adapter", () => {
     });
 
     test("cleans up signal subscriptions on unmount", () => {
-      const cache = createNormalizedCache();
+      const cache = createGraphDataStore();
       const sig = createSignal("first");
       const { result, unmount } = renderHook(() => useQuery().read(sig), {
-        wrapper: wrapper({ cache }),
+        wrapper: wrapper({ store: cache }),
       });
 
       expect(result.current).toBe("first");
@@ -719,7 +719,7 @@ describe("React adapter", () => {
 });
 
 function demandFirstUserName(state: SessionState): void {
-  const ids = state.read(cacheSlot<readonly string[]>(state.cache, "Query.users.ids").sig);
+  const ids = state.read(cacheSlot<readonly string[]>(state.store, "Query.users.ids").sig);
   const id = ids?.[0];
   if (id === undefined) {
     return;

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import {
-  createNormalizedCache,
+  createGraphDataStore,
   createQuerySession,
   type Fetcher,
   type SelectionPath,
@@ -15,9 +15,9 @@ const p = (steps: SelectionStep[]): SelectionPath => ({
 
 describe("QuerySession cache materialization", () => {
   test("syncs aliased root embedded value object leaves to owner fields", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const session = createQuerySession({
-      cache,
+      store: cache,
       fetcher: async () => ({
         user_0: {
           __typename: "User",
@@ -59,7 +59,7 @@ describe("QuerySession cache materialization", () => {
   });
 
   test("treats aliased root embedded value object leaves as fresh across sessions", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const metadata = valueObjectMetadata();
     const paths = [
       p([
@@ -88,7 +88,7 @@ describe("QuerySession cache materialization", () => {
       },
     }));
     const firstSession = createQuerySession({
-      cache,
+      store: cache,
       fetcher: firstFetch,
       policy: "cache-first",
       metadata,
@@ -100,7 +100,7 @@ describe("QuerySession cache materialization", () => {
 
     const secondFetch = vi.fn<Fetcher>(async () => ({}));
     const secondSession = createQuerySession({
-      cache,
+      store: cache,
       fetcher: secondFetch,
       policy: "cache-first",
       metadata,
@@ -115,7 +115,7 @@ describe("QuerySession cache materialization", () => {
   });
 
   test("clears selected owner leaves and stays fresh for aliased root null value objects", async () => {
-    const cache = createNormalizedCache();
+    const cache = createGraphDataStore();
     const metadata = valueObjectMetadata();
     cache.normalize(
       {
@@ -155,7 +155,7 @@ describe("QuerySession cache materialization", () => {
       },
     }));
     const firstSession = createQuerySession({
-      cache,
+      store: cache,
       fetcher: firstFetch,
       policy: "network-only",
       metadata,
@@ -167,7 +167,7 @@ describe("QuerySession cache materialization", () => {
 
     const secondFetch = vi.fn<Fetcher>(async () => ({}));
     const secondSession = createQuerySession({
-      cache,
+      store: cache,
       fetcher: secondFetch,
       policy: "cache-first",
       metadata,

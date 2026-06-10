@@ -1,7 +1,7 @@
 import type {
-  CacheAddress,
+  GraphDataAddress,
   EntityRef,
-  NormalizedCache,
+  GraphDataStore,
   PlannedSelectionPath,
   PlannedSelectionStep,
   PlannerMetadata,
@@ -10,7 +10,7 @@ import type {
 import { isEntityObject, isRecord } from "../guards";
 import { readGraphQLData } from "../transport";
 import {
-  type CacheSlotSuffix,
+  type GraphDataSlotSuffix,
   fieldStepForPath,
   isListIdentityStep,
   ownerFieldSteps,
@@ -19,26 +19,26 @@ import {
 import { expiresAt } from "./store";
 
 interface SlotSyncContext {
-  readonly cache: NormalizedCache;
+  readonly store: GraphDataStore;
   readonly expires: number;
   readonly metadata: PlannerMetadata | undefined;
   readonly seen: Set<string>;
 }
 
 export function writeOperationResult(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   data: unknown,
   selections: readonly PlannedSelectionPath[],
   ttl: number,
   metadata: PlannerMetadata | undefined,
 ): void {
   const result = readGraphQLData(data);
-  cache.normalize(result, ttl, metadata);
-  syncSlots(cache, result, selections, ttl, metadata);
+  store.normalize(result, ttl, metadata);
+  syncSlots(store, result, selections, ttl, metadata);
 }
 
 function syncSlots(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   data: Record<string, unknown>,
   paths: readonly PlannedSelectionPath[],
   ttl: number,
@@ -46,7 +46,7 @@ function syncSlots(
 ): void {
   const expires = expiresAt(ttl);
   const context: SlotSyncContext = {
-    cache,
+    store,
     expires,
     metadata,
     seen: new Set<string>(),
@@ -62,7 +62,7 @@ function syncPathSlots(
   data: Record<string, unknown>,
   path: PlannedSelectionPath,
 ): void {
-  const { cache, expires, metadata, seen } = context;
+  const { store, expires, metadata, seen } = context;
   let current: unknown = data;
   const originalSteps: PlannedSelectionStep[] = [];
   let ownerRef: EntityRef | undefined;
@@ -84,10 +84,10 @@ function syncPathSlots(
       continue;
     }
 
-    const parentRef = isEntityObject(current) ? entityFrom(cache, current) : undefined;
+    const parentRef = isEntityObject(current) ? entityFrom(store, current) : undefined;
     current = current[step.responseKey ?? step.field];
     if (isEntityObject(current)) {
-      ownerRef = entityFrom(cache, current);
+      ownerRef = entityFrom(store, current);
       ownerFieldStartIndex = index + 1;
     }
 
@@ -99,7 +99,7 @@ function syncPathSlots(
     }
 
     const nextStep = path.steps[index + 1];
-    const normalized = toSlotValue(cache, current, isListIdentityStep(nextStep));
+    const normalized = toSlotValue(store, current, isListIdentityStep(nextStep));
     if (normalized === undefined) {
       continue;
     }
@@ -111,52 +111,52 @@ function syncPathSlots(
     }
     seen.add(key);
 
-    writeCacheAddress(cache, address, normalized, expires);
+    writeGraphDataAddress(store, address, normalized, expires);
 
     if (Array.isArray(normalized)) {
       const identityStep = path.steps[index + 1];
       if (identityStep?.field === "refs") {
-        writeCacheAddress(cache, rootAddress(path.root, steps, "refs"), normalized, expires);
-        clearCacheAddress(cache, rootAddress(path.root, steps, "ids"));
+        writeGraphDataAddress(store, rootAddress(path.root, steps, "refs"), normalized, expires);
+        clearGraphDataAddress(store, rootAddress(path.root, steps, "ids"));
       } else {
-        writeCacheAddress(
-          cache,
+        writeGraphDataAddress(
+          store,
           rootAddress(path.root, steps, "ids"),
           normalized.map((ref) => ref.id),
           expires,
         );
-        clearCacheAddress(cache, rootAddress(path.root, steps, "refs"));
+        clearGraphDataAddress(store, rootAddress(path.root, steps, "refs"));
       }
       writeRelationSlot(context, parentRef, step, normalized);
       writeOwnerRelationSlot(context, ownerRef, ownerFieldStartIndex, steps, normalized);
       if (identityStep?.field === "refs") {
         writeRelationSlot(context, parentRef, step, normalized, "refs");
         writeOwnerRelationSlot(context, ownerRef, ownerFieldStartIndex, steps, normalized, "refs");
-        clearRelationSlotSuffix(cache, parentRef, step, "ids");
+        clearRelationSlotSuffix(store, parentRef, step, "ids");
       } else {
         const ids = normalized.map((ref) => ref.id);
         writeRelationSlot(context, parentRef, step, ids, "ids");
         writeOwnerRelationSlot(context, ownerRef, ownerFieldStartIndex, steps, ids, "ids");
-        clearRelationSlotSuffix(cache, parentRef, step, "refs");
+        clearRelationSlotSuffix(store, parentRef, step, "refs");
       }
     } else if (normalized === null) {
-      clearCacheAddress(cache, rootAddress(path.root, steps, "ids"));
-      clearCacheAddress(cache, rootAddress(path.root, steps, "refs"));
+      clearGraphDataAddress(store, rootAddress(path.root, steps, "ids"));
+      clearGraphDataAddress(store, rootAddress(path.root, steps, "refs"));
       writeRelationSlot(context, parentRef, step, null);
       writeOwnerRelationSlot(context, ownerRef, ownerFieldStartIndex, steps, null);
       if (index < path.steps.length - 1) {
         clearOwnerLeafField(context, ownerRef, ownerFieldSteps(path.steps, ownerFieldStartIndex));
       }
     } else if (normalized && "type" in normalized && parentRef) {
-      clearCacheAddress(cache, rootAddress(path.root, steps, "ids"));
-      clearCacheAddress(cache, rootAddress(path.root, steps, "refs"));
+      clearGraphDataAddress(store, rootAddress(path.root, steps, "ids"));
+      clearGraphDataAddress(store, rootAddress(path.root, steps, "refs"));
       writeRelationSlot(context, parentRef, step, normalized);
       writeOwnerRelationSlot(context, ownerRef, ownerFieldStartIndex, steps, normalized);
     } else {
-      clearCacheAddress(cache, rootAddress(path.root, steps, "ids"));
-      clearCacheAddress(cache, rootAddress(path.root, steps, "refs"));
-      clearRelationSlotSuffix(cache, parentRef, step, "ids");
-      clearRelationSlotSuffix(cache, parentRef, step, "refs");
+      clearGraphDataAddress(store, rootAddress(path.root, steps, "ids"));
+      clearGraphDataAddress(store, rootAddress(path.root, steps, "refs"));
+      clearRelationSlotSuffix(store, parentRef, step, "ids");
+      clearRelationSlotSuffix(store, parentRef, step, "refs");
     }
   }
 }
@@ -167,7 +167,7 @@ function writeOwnerRelationSlot(
   ownerFieldStartIndex: number,
   steps: readonly SelectionStep[],
   value: EntityRef | readonly EntityRef[] | readonly string[] | null,
-  suffix?: CacheSlotSuffix,
+  suffix?: GraphDataSlotSuffix,
 ): void {
   if (!ownerRef) {
     return;
@@ -186,9 +186,9 @@ function writeLeafSlot(
   value: string | number | boolean | null,
 ): void {
   const address = rootAddress(root, steps);
-  writeCacheAddress(context.cache, address, value, context.expires);
-  clearCacheAddress(context.cache, rootAddress(root, steps, "ids"));
-  clearCacheAddress(context.cache, rootAddress(root, steps, "refs"));
+  writeGraphDataAddress(context.store, address, value, context.expires);
+  clearGraphDataAddress(context.store, rootAddress(root, steps, "ids"));
+  clearGraphDataAddress(context.store, rootAddress(root, steps, "refs"));
 }
 
 function writeOwnerLeafField(
@@ -200,8 +200,8 @@ function writeOwnerLeafField(
   if (!ownerRef || fieldSteps.length === 0) {
     return;
   }
-  writeCacheAddress(
-    context.cache,
+  writeGraphDataAddress(
+    context.store,
     { owner: { kind: "entity", ref: ownerRef }, path: fieldSteps },
     value,
     context.expires,
@@ -216,7 +216,10 @@ function clearOwnerLeafField(
   if (!ownerRef || fieldSteps.length === 0) {
     return;
   }
-  clearCacheAddress(context.cache, { owner: { kind: "entity", ref: ownerRef }, path: fieldSteps });
+  clearGraphDataAddress(context.store, {
+    owner: { kind: "entity", ref: ownerRef },
+    path: fieldSteps,
+  });
 }
 
 function writeRelationSlot(
@@ -224,38 +227,43 @@ function writeRelationSlot(
   ref: EntityRef | undefined,
   step: SelectionStep,
   value: EntityRef | readonly EntityRef[] | readonly string[] | null,
-  suffix?: CacheSlotSuffix,
+  suffix?: GraphDataSlotSuffix,
 ): void {
   if (!ref) {
     return;
   }
-  writeCacheAddress(context.cache, relationCacheAddress(ref, step, suffix), value, context.expires);
+  writeGraphDataAddress(
+    context.store,
+    relationGraphDataAddress(ref, step, suffix),
+    value,
+    context.expires,
+  );
 }
 
 function clearRelationSlotSuffix(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   ref: EntityRef | undefined,
   step: SelectionStep,
-  suffix: CacheSlotSuffix,
+  suffix: GraphDataSlotSuffix,
 ): void {
   if (ref) {
-    clearCacheAddress(cache, relationCacheAddress(ref, step, suffix));
+    clearGraphDataAddress(store, relationGraphDataAddress(ref, step, suffix));
   }
 }
 
-function writeCacheAddress<T>(
-  cache: NormalizedCache,
-  address: CacheAddress,
+function writeGraphDataAddress<T>(
+  store: GraphDataStore,
+  address: GraphDataAddress,
   value: T,
   expires: number,
 ): void {
-  const entry = cache.entry<T>(address);
+  const entry = store.entry<T>(address);
   entry.sig(value);
   entry.expires = expires;
 }
 
-function clearCacheAddress(cache: NormalizedCache, address: CacheAddress): void {
-  const entry = cache.peek(address);
+function clearGraphDataAddress(store: GraphDataStore, address: GraphDataAddress): void {
+  const entry = store.peek(address);
   if (!entry) {
     return;
   }
@@ -267,20 +275,20 @@ function rootAddress(
   root: string,
   steps: readonly SelectionStep[],
   facet?: "ids" | "refs",
-): CacheAddress {
+): GraphDataAddress {
   return { owner: { kind: "root", root }, path: steps, facet };
 }
 
-function relationCacheAddress(
+function relationGraphDataAddress(
   ref: EntityRef,
   step: SelectionStep,
-  suffix?: CacheSlotSuffix,
-): CacheAddress {
+  suffix?: GraphDataSlotSuffix,
+): GraphDataAddress {
   return { owner: { kind: "entity", ref }, path: [step], facet: suffix ?? "link" };
 }
 
 function toSlotValue(
-  cache: NormalizedCache,
+  store: GraphDataStore,
   value: unknown,
   expectsListIdentity: boolean,
 ): EntityRef | readonly EntityRef[] | null | undefined {
@@ -291,16 +299,16 @@ function toSlotValue(
     if (!expectsListIdentity && !value.some(isEntityObject)) {
       return undefined;
     }
-    return value.flatMap((item) => (isEntityObject(item) ? [entityFrom(cache, item)] : []));
+    return value.flatMap((item) => (isEntityObject(item) ? [entityFrom(store, item)] : []));
   }
   if (isEntityObject(value)) {
-    return entityFrom(cache, value);
+    return entityFrom(store, value);
   }
   return undefined;
 }
 
-function entityFrom(cache: NormalizedCache, value: Record<string, unknown>): EntityRef {
-  return cache.entity(String(value["__typename"]), String(value["id"]));
+function entityFrom(store: GraphDataStore, value: Record<string, unknown>): EntityRef {
+  return store.entity(String(value["__typename"]), String(value["id"]));
 }
 
 function isLeafValue(value: unknown): value is string | number | boolean | null {
