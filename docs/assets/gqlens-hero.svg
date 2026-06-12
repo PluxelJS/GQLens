@@ -1,0 +1,60 @@
+<svg width="1280" height="500" viewBox="0 0 1280 500" fill="none" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" role="img" aria-labelledby="title desc">
+  <title id="title">GQLens QuerySession overview</title>
+  <desc id="desc">QuerySession boundaries collect field reads from child components and produce scoped GraphQL queries.</desc>
+  <rect width="1280" height="500" fill="#1B1738"/>
+
+  <text x="64" y="72" fill="#F472B6" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="750">Scope components with QuerySession</text>
+  <text x="902" y="72" fill="#F472B6" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="750">Fetched per session</text>
+
+  <rect x="64" y="100" width="584" height="370" rx="8" fill="#302B5F"/>
+  <rect x="902" y="100" width="314" height="370" rx="8" fill="#302B5F"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
+    <text x="90" y="140"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF"> name=</tspan><tspan fill="#A5F3FC">"nav"</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
+    <text x="116" y="166"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">Header</tspan><tspan fill="#E9D5FF"> /&gt;</tspan></text>
+    <text x="90" y="192"><tspan fill="#E9D5FF">&lt;/</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
+
+    <text x="90" y="250"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF"> name=</tspan><tspan fill="#A5F3FC">"post"</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
+    <text x="116" y="276"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">Title</tspan><tspan fill="#E9D5FF"> id={id} /&gt;</tspan></text>
+    <text x="116" y="302"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">Comments</tspan><tspan fill="#E9D5FF"> id={id} /&gt;</tspan></text>
+    <text x="90" y="328"><tspan fill="#E9D5FF">&lt;/</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
+
+    <text x="90" y="366" fill="#A5F3FC">// reads inside children</text>
+    <text x="90" y="394"><tspan fill="#FDE68A">Header</tspan><tspan fill="#E9D5FF">    q.</tspan><tspan fill="#86EFAC">viewer</tspan><tspan fill="#E9D5FF">.</tspan><tspan fill="#67E8F9">name</tspan></text>
+    <text x="90" y="422"><tspan fill="#FDE68A">Title</tspan><tspan fill="#E9D5FF">     q.</tspan><tspan fill="#86EFAC">post</tspan><tspan fill="#E9D5FF">({ id }).</tspan><tspan fill="#67E8F9">title</tspan></text>
+    <text x="90" y="450"><tspan fill="#FDE68A">Comments</tspan><tspan fill="#E9D5FF">  q.</tspan><tspan fill="#86EFAC">post</tspan><tspan fill="#E9D5FF">({ id }).</tspan><tspan fill="#86EFAC">comments</tspan><tspan fill="#E9D5FF">.</tspan><tspan fill="#67E8F9">ids</tspan></text>
+  </g>
+
+  <path d="M668 166H700" stroke="#FACC15" stroke-width="5" stroke-linecap="round"/>
+  <rect x="700" y="126" width="154" height="80" rx="12" fill="#211B49" stroke="#FACC15" stroke-width="3"/>
+  <text x="777" y="158" text-anchor="middle" fill="#FDE68A" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="800">QuerySession</text>
+  <text x="777" y="183" text-anchor="middle" fill="#A5F3FC" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">nav</text>
+  <path d="M854 166H880" stroke="#FACC15" stroke-width="5" stroke-linecap="round"/>
+  <path d="M868 149L890 166L868 183" stroke="#FACC15" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M668 292H700" stroke="#FACC15" stroke-width="5" stroke-linecap="round"/>
+  <rect x="700" y="244" width="154" height="96" rx="12" fill="#211B49" stroke="#FACC15" stroke-width="3"/>
+  <text x="777" y="278" text-anchor="middle" fill="#FDE68A" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="800">QuerySession</text>
+  <text x="777" y="303" text-anchor="middle" fill="#A5F3FC" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">post</text>
+  <text x="777" y="324" text-anchor="middle" fill="#A5F3FC" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">merge children</text>
+  <path d="M854 292H880" stroke="#FACC15" stroke-width="5" stroke-linecap="round"/>
+  <path d="M868 275L890 292L868 309" stroke="#FACC15" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
+    <text x="930" y="134"><tspan fill="#C084FC">query</tspan><tspan fill="#E9D5FF"> Nav {</tspan></text>
+    <text x="956" y="162"><tspan fill="#86EFAC">viewer</tspan><tspan fill="#E9D5FF"> {</tspan></text>
+    <text x="984" y="190" fill="#67E8F9">name</text>
+    <text x="956" y="218" fill="#E9D5FF">}</text>
+    <text x="930" y="246" fill="#E9D5FF">}</text>
+
+    <text x="930" y="286"><tspan fill="#C084FC">query</tspan><tspan fill="#E9D5FF"> Post($id: ID!) {</tspan></text>
+    <text x="956" y="312"><tspan fill="#86EFAC">post</tspan><tspan fill="#E9D5FF">(</tspan><tspan fill="#F9A8D4">id</tspan><tspan fill="#E9D5FF">: </tspan><tspan fill="#FDBA74">$id</tspan><tspan fill="#E9D5FF">) {</tspan></text>
+    <text x="984" y="338" fill="#67E8F9">title</text>
+    <text x="984" y="364"><tspan fill="#86EFAC">comments</tspan><tspan fill="#E9D5FF"> {</tspan></text>
+    <text x="1012" y="390" fill="#67E8F9">id</text>
+    <text x="984" y="416" fill="#E9D5FF">}</text>
+    <text x="956" y="442" fill="#E9D5FF">}</text>
+    <text x="930" y="468" fill="#E9D5FF">}</text>
+  </g>
+
+</svg>
