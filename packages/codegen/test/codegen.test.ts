@@ -72,6 +72,33 @@ describe("@gqlens/codegen", () => {
     );
   });
 
+  test("mutation descriptors support list object results", async () => {
+    const files = await generateFiles({
+      schema: /* graphql */ `
+        type Group {
+          id: ID!
+          name: String!
+        }
+
+        input GroupInput {
+          name: String!
+        }
+
+        type Query {
+          groups: [Group!]!
+        }
+
+        type Mutation {
+          updateGroups(groups: [GroupInput!]!): [Group!]!
+        }
+      `,
+    });
+
+    expect(files["accessor.ts"]).toContain(
+      'MutationOperation<Types.MutationUpdateGroupsArgs, Array<Pick<NonNullable<NonNullable<Types.Mutation["updateGroups"]>[number]>, "id" | "__typename" | "name">>>',
+    );
+  });
+
   test("uses the same args type names as GraphQL Code Generator", async () => {
     const files = await generateFiles({
       schema: /* graphql */ `

@@ -1,6 +1,6 @@
 {
   "name": "@gqlens/solid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GQLens SolidJS bindings — primitives and signals.",
   "license": "Apache-2.0",
   "files": [

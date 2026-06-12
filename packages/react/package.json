@@ -1,6 +1,6 @@
 {
   "name": "@gqlens/react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GQLens React bindings — hooks and components.",
   "license": "Apache-2.0",
   "files": [

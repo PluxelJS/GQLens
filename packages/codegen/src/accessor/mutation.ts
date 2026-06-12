@@ -2,7 +2,7 @@ import type CodeBlockWriter from "code-block-writer";
 import { type GraphQLField, type GraphQLObjectType, isObjectType } from "graphql";
 import { generatedArgsTypeName, generatedTypeName } from "../type-names";
 import { objectKind, unwrapOutput } from "../utils";
-import { isLeafType, quote, writeSection } from "./shared";
+import { isLeafType, isListTypeLike, quote, writeSection } from "./shared";
 
 export function writeMutationApi(writer: CodeBlockWriter, type: GraphQLObjectType): void {
   writeSection(writer, "Mutation operation descriptors");
@@ -134,6 +134,9 @@ function apiReturnType(field: GraphQLField<unknown, unknown>): string {
     const fields = mutationSelectedFieldNames(field)
       .map((name) => quote(name))
       .join(" | ");
+    if (isListTypeLike(field.type)) {
+      return `Array<Pick<NonNullable<NonNullable<Types.Mutation[${quote(field.name)}]>[number]>, ${fields}>>`;
+    }
     return `Pick<NonNullable<Types.Mutation[${quote(field.name)}]>, ${fields}>`;
   }
   return `Types.${generatedTypeName("Mutation")}[${quote(field.name)}]`;
