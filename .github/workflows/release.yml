@@ -5,17 +5,23 @@ on:
     types: [published]
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Install toolchain
         uses: jdx/mise-action@v2
@@ -26,7 +32,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify
+        run: pnpm run verify
+
       - name: Publish all packages
         run: pnpm run publish:all
         env:
           NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Upload publish summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-publish-summary
+          path: pnpm-publish-summary.json
+          if-no-files-found: ignore

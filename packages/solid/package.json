@@ -21,7 +21,7 @@
     }
   },
   "scripts": {
-    "publish": "pnpm publish --access public --no-git-checks",
+    "publish": "pnpm publish --access public --no-git-checks --report-summary",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsdown"

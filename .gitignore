@@ -4,6 +4,7 @@ out
 coverage
 *.tsbuildinfo
 *.log
+pnpm-publish-summary.json
 .aube
 .turbo
 .DS_Store
