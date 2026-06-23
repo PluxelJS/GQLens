@@ -1,6 +1,6 @@
 <svg width="1280" height="500" viewBox="0 0 1280 500" fill="none" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" role="img" aria-labelledby="title desc">
   <title id="title">GQLens QuerySession overview</title>
-  <desc id="desc">QuerySession boundaries collect field reads from child components and produce scoped GraphQL queries.</desc>
+  <desc id="desc">QuerySession boundaries collect field reads and variables from child components, then produce scoped GraphQL queries.</desc>
   <rect width="1280" height="500" fill="#1B1738"/>
 
   <text x="64" y="72" fill="#F472B6" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="750">Scope components with QuerySession</text>
@@ -14,7 +14,7 @@
     <text x="116" y="166"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">Header</tspan><tspan fill="#E9D5FF"> /&gt;</tspan></text>
     <text x="90" y="192"><tspan fill="#E9D5FF">&lt;/</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
 
-    <text x="90" y="250"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF"> name=</tspan><tspan fill="#A5F3FC">"post"</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
+    <text x="90" y="250"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF"> name=</tspan><tspan fill="#A5F3FC">"post"</tspan><tspan fill="#E9D5FF"> vars={{ id }}&gt;</tspan></text>
     <text x="116" y="276"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">Title</tspan><tspan fill="#E9D5FF"> id={id} /&gt;</tspan></text>
     <text x="116" y="302"><tspan fill="#E9D5FF">&lt;</tspan><tspan fill="#FDE68A">Comments</tspan><tspan fill="#E9D5FF"> id={id} /&gt;</tspan></text>
     <text x="90" y="328"><tspan fill="#E9D5FF">&lt;/</tspan><tspan fill="#FDE68A">QuerySession</tspan><tspan fill="#E9D5FF">&gt;</tspan></text>
@@ -36,7 +36,7 @@
   <rect x="700" y="244" width="154" height="96" rx="12" fill="#211B49" stroke="#FACC15" stroke-width="3"/>
   <text x="777" y="278" text-anchor="middle" fill="#FDE68A" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="800">QuerySession</text>
   <text x="777" y="303" text-anchor="middle" fill="#A5F3FC" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">post</text>
-  <text x="777" y="324" text-anchor="middle" fill="#A5F3FC" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">merge children</text>
+  <text x="777" y="324" text-anchor="middle" fill="#A5F3FC" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">vars: id</text>
   <path d="M854 292H880" stroke="#FACC15" stroke-width="5" stroke-linecap="round"/>
   <path d="M868 275L890 292L868 309" stroke="#FACC15" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 

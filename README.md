@@ -1,7 +1,5 @@
 # GQLens [![npm: @gqlens/core](https://img.shields.io/npm/v/%40gqlens%2Fcore?label=core)](https://www.npmjs.com/package/@gqlens/core) [![CI](https://github.com/PluxelJS/GQLens/actions/workflows/ci.yml/badge.svg)](https://github.com/PluxelJS/GQLens/actions/workflows/ci.yml) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-
-
 <p align="center">
   <img src="./docs/assets/gqlens-hero.svg" alt="GQLens QuerySession boundaries collect child component field reads into scoped GraphQL selections." />
 </p>
