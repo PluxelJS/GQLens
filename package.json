@@ -1,6 +1,10 @@
 {
   "name": "gqlens",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PluxelJS/GQLens"
+  },
   "type": "module",
   "scripts": {
     "build": "pnpm exec turbo run build",

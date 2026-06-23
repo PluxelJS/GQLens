@@ -8,6 +8,7 @@ const dependencyFields = [
   "optionalDependencies",
   "devDependencies",
 ];
+const repositoryUrl = "https://github.com/PluxelJS/GQLens";
 
 const packageJsons = await readWorkspacePackages();
 const publicPackages = packageJsons.filter((pkg) => pkg.name?.startsWith("@gqlens/"));
@@ -30,6 +31,10 @@ if (uniqueVersions.size > 1) {
 const [workspaceVersion] = uniqueVersions;
 
 for (const pkg of publicPackages) {
+  if (pkg.repository?.url !== repositoryUrl) {
+    errors.push(`${pkg.name} repository.url must be ${repositoryUrl}.`);
+  }
+
   for (const field of dependencyFields) {
     const dependencies = pkg[field];
     if (!dependencies || typeof dependencies !== "object") {

@@ -3,6 +3,11 @@
   "version": "0.2.0",
   "description": "Core GQLens library — query parsing and lens engine.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PluxelJS/GQLens",
+    "directory": "packages/core"
+  },
   "files": [
     "dist"
   ],
