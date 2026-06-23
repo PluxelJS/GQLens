@@ -722,6 +722,32 @@ describe("QuerySession", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  test("network-only repeats the same completed operation on explicit schedule", async () => {
+    const cache = createGraphDataStore();
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      viewer: { __typename: "User", id: "1", name: "Alice" },
+    }));
+    const session = createQuerySession({
+      store: cache,
+      fetcher,
+      policy: "network-only",
+      schema: schemaContract({
+        roots: { viewer: { returnsEntity: true, graphQLType: "User" } },
+        types: { User: { name: { returnsEntity: false } } },
+      }),
+    });
+    const reader = session.mount();
+    const selection = [{ field: "viewer" }, { field: "name" }];
+
+    session.replace(reader, [{ root: "Query", steps: selection }]);
+    session.schedule();
+    await nextMacrotask();
+    session.schedule();
+    await nextMacrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   test("cache-and-network repeats fresh operations after completed ttl expires", async () => {
     const cache = createGraphDataStore();
     const schema = schemaContract({

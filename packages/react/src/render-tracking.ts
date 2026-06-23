@@ -16,12 +16,14 @@ export interface ReaderScope {
 export function useRenderTracking(session: QuerySession): ReaderScope {
   const signalsRef = useRef<Set<AlienSignalReader>>(new Set());
   const pathsRef = useRef<SelectionPath[]>([]);
+  const pathKeysRef = useRef<Set<string>>(new Set());
   const readerRef = useRef<ReturnType<QuerySession["mount"]> | null>(null);
   const pathKeyRef = useRef("");
   const [, forceRender] = useReducer((value: number) => value + 1, 0);
 
   signalsRef.current = new Set<AlienSignalReader>();
   pathsRef.current = [];
+  pathKeysRef.current = new Set<string>();
 
   useLayoutEffect(() => {
     const reader = session.mount();
@@ -40,7 +42,7 @@ export function useRenderTracking(session: QuerySession): ReaderScope {
     }
 
     const paths = pathsRef.current;
-    const nextPathKey = pathSetKey(paths);
+    const nextPathKey = pathSetKey(pathKeysRef.current);
     if (nextPathKey !== pathKeyRef.current) {
       pathKeyRef.current = nextPathKey;
       session.replace(reader, paths);
@@ -60,7 +62,7 @@ export function useRenderTracking(session: QuerySession): ReaderScope {
   return useMemo(
     () => ({
       demand(root: string, steps: readonly SelectionStep[]): void {
-        addSelection(pathsRef.current, { root, steps });
+        addSelection(pathsRef.current, pathKeysRef.current, { root, steps });
       },
       read<T>(sig: AlienSignalReader<T>): T {
         signalsRef.current.add(sig);
@@ -71,13 +73,15 @@ export function useRenderTracking(session: QuerySession): ReaderScope {
   );
 }
 
-function pathSetKey(paths: readonly SelectionPath[]): string {
-  return paths.map(selectionKey).toSorted().join("\n");
+function pathSetKey(keys: ReadonlySet<string>): string {
+  return [...keys].toSorted().join("\n");
 }
 
-function addSelection(paths: SelectionPath[], path: SelectionPath): void {
+function addSelection(paths: SelectionPath[], keys: Set<string>, path: SelectionPath): void {
   const key = selectionKey(path);
-  if (!paths.some((item) => selectionKey(item) === key)) {
-    paths.push(path);
+  if (keys.has(key)) {
+    return;
   }
+  keys.add(key);
+  paths.push(path);
 }

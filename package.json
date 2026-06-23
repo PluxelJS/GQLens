@@ -4,13 +4,19 @@
   "type": "module",
   "scripts": {
     "build": "pnpm exec turbo run build",
-    "publish:all": "pnpm exec turbo run publish",
+    "changeset": "changeset",
+    "release:check": "node scripts/check-release-invariants.mjs",
+    "release:smoke": "node scripts/smoke-packages.mjs",
+    "release:version": "changeset version",
+    "release:publish": "pnpm run verify && pnpm run release:smoke && changeset publish",
+    "publish:all": "pnpm run release:publish",
     "lint": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives packages",
     "format": "oxfmt --check .",
     "format:write": "oxfmt --write .",
-    "verify": "pnpm run lint && pnpm run format && pnpm exec turbo run typecheck build test"
+    "verify": "pnpm run release:check && pnpm run lint && pnpm run format && pnpm exec turbo run typecheck build test"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^25.9.2",
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",

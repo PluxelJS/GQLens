@@ -27,3 +27,13 @@ pnpm install
 pnpm run verify
 pnpm run build
 ```
+
+## Release
+
+GQLens publishes all `@gqlens/*` packages as one fixed-version product.
+
+```sh
+pnpm changeset
+pnpm run release:version
+pnpm run release:publish
+```

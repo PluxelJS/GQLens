@@ -6,18 +6,6 @@
       "outputs": ["dist/**"]
     },
     "typecheck": {},
-    "test": {},
-    "publish": {
-      "dependsOn": ["typecheck", "build", "test"],
-      "cache": false,
-      "passThroughEnv": [
-        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-        "ACTIONS_ID_TOKEN_REQUEST_URL",
-        "GITHUB_ACTIONS",
-        "NPM_CONFIG_PROVENANCE",
-        "NPM_CONFIG_TOKEN",
-        "NODE_AUTH_TOKEN"
-      ]
-    }
+    "test": {}
   }
 }

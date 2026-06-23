@@ -20,7 +20,9 @@ export interface SelectionCollector {
 
 interface ReaderState {
   active: SelectionPath[];
+  activeKeys: Set<string>;
   draft: SelectionPath[] | null;
+  draftKeys: Set<string> | null;
 }
 
 export function createSelectionCollector(): SelectionCollector {
@@ -30,7 +32,12 @@ export function createSelectionCollector(): SelectionCollector {
   return {
     register(): ReaderHandle {
       const handle = { id: nextId++ };
-      readers.set(handle.id, { active: [], draft: null });
+      readers.set(handle.id, {
+        active: [],
+        activeKeys: new Set<string>(),
+        draft: null,
+        draftKeys: null,
+      });
       return handle;
     },
 
@@ -42,6 +49,7 @@ export function createSelectionCollector(): SelectionCollector {
       const state = readers.get(reader.id);
       if (state) {
         state.draft = [];
+        state.draftKeys = new Set<string>();
       }
     },
 
@@ -51,7 +59,8 @@ export function createSelectionCollector(): SelectionCollector {
         return;
       }
       const target = state.draft ?? state.active;
-      addUnique(target, path);
+      const keys = state.draftKeys ?? state.activeKeys;
+      addUnique(target, keys, path);
     },
 
     commit(reader: ReaderHandle): void {
@@ -60,13 +69,16 @@ export function createSelectionCollector(): SelectionCollector {
         return;
       }
       state.active = state.draft;
+      state.activeKeys = state.draftKeys ?? new Set<string>();
       state.draft = null;
+      state.draftKeys = null;
     },
 
     discard(reader: ReaderHandle): void {
       const state = readers.get(reader.id);
       if (state) {
         state.draft = null;
+        state.draftKeys = null;
       }
     },
 
@@ -75,8 +87,11 @@ export function createSelectionCollector(): SelectionCollector {
       if (!state) {
         return;
       }
-      state.active = unique(paths);
+      const next = unique(paths);
+      state.active = next.paths;
+      state.activeKeys = next.keys;
       state.draft = null;
+      state.draftKeys = null;
     },
 
     snapshot(): SelectionPath[] {
@@ -84,7 +99,7 @@ export function createSelectionCollector(): SelectionCollector {
       for (const state of readers.values()) {
         paths.push(...state.active);
       }
-      return unique(paths);
+      return unique(paths).paths;
     },
 
     diff(prev: readonly SelectionPath[]): { added: SelectionPath[]; removed: SelectionPath[] } {
@@ -103,23 +118,28 @@ export function createSelectionCollector(): SelectionCollector {
   };
 }
 
-function addUnique(target: SelectionPath[], path: SelectionPath): void {
+function addUnique(target: SelectionPath[], keys: Set<string>, path: SelectionPath): void {
   const key = selectionKey(path);
-  if (!target.some((item) => selectionKey(item) === key)) {
-    target.push(path);
+  if (keys.has(key)) {
+    return;
   }
+  keys.add(key);
+  target.push(path);
 }
 
-function unique(paths: readonly SelectionPath[]): SelectionPath[] {
-  const seen = new Set<string>();
+function unique(paths: readonly SelectionPath[]): {
+  readonly paths: SelectionPath[];
+  readonly keys: Set<string>;
+} {
+  const keys = new Set<string>();
   const result: SelectionPath[] = [];
   for (const path of paths) {
     const key = selectionKey(path);
-    if (seen.has(key)) {
+    if (keys.has(key)) {
       continue;
     }
-    seen.add(key);
+    keys.add(key);
     result.push(path);
   }
-  return result;
+  return { paths: result, keys };
 }

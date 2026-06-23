@@ -56,14 +56,12 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
 
       const operation = planCached(selectionPlanCache, paths, "query", schema);
       const key = operationKey(operation);
-      const completedFresh = !forced && isCompletedFresh(completed, key);
+      const completedFresh =
+        policy !== "network-only" && !forced && isCompletedFresh(completed, key);
       if (policy === "cache-first" && completedFresh) {
         return;
       }
-      if (
-        completedFresh &&
-        ((policy === "cache-and-network" && fresh) || policy === "network-only")
-      ) {
+      if (policy === "cache-and-network" && completedFresh && fresh) {
         return;
       }
       if (inflight.has(key)) {
@@ -85,7 +83,9 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
             isSelectionFresh(runtimeStore, path, schema),
           );
           // Cache-first only remembers false negatives; fresh paths must refetch if later marked stale.
-          if (policy !== "cache-first" || !freshAfterWrite) {
+          if (policy === "network-only") {
+            completed.delete(key);
+          } else if (policy !== "cache-first" || !freshAfterWrite) {
             completed.set(key, expiresAt(ttl));
           } else {
             completed.delete(key);
