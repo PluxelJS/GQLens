@@ -2,9 +2,10 @@
 
 ## 目标
 
-这个示例展示 `yoga + gqlens + vite` 的开发期协作方式：
+这个示例展示 `elysia + yoga + gqlens + vite` 的开发期协作方式：
 
 - Vite dev server 同时承载前端和 `/graphql` middleware。
+- 独立 server 使用 Elysia 挂载同一份 Yoga handler，用于前后端分离模式。
 - Vite dev server 的 `ssrLoadModule()` 负责重新加载 server/schema 入口。
 - GraphQL handler 在 `src/*` 变化后热替换，不重启 dev server。
 - 只有 GraphQL 类型系统实际变化时，才触发 GQLens codegen。
@@ -22,7 +23,8 @@ src/
   schema.ts                # schema module，真实 TS
   yoga.ts                  # Yoga handler factory，真实 TS
   context.ts               # context，真实 TS
-  server.ts                # optional standalone backend
+  http-app.ts              # Elysia app，挂载 Yoga/health 等 HTTP 路由
+  server.ts                # optional standalone Elysia backend
 
 web/
   client/                  # React app
@@ -114,7 +116,9 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 
 为保证 middleware 模式可靠，`src/schema.ts` 使用 Node `createRequire()` 加载 `graphql` 的 CJS 入口，让 schema 构造侧和 Yoga 执行侧共享同一份 GraphQL instance。`createSchemaSDL()` 也在 schema 模块内部打印 SDL，避免把 `GraphQLSchema` 对象交给另一份 `graphql` 去 `printSchema()`。
 
-前后端分离模式仍然可用：`npm run dev:server` 启动独立 Yoga server，`npm run dev:client` 通过 Vite proxy 转发 `/graphql`。
+前后端分离模式仍然可用：`pnpm run dev:server` 启动独立 Elysia server，`pnpm run dev:client` 通过 Vite proxy 转发 `/graphql`。
+
+Yoga 显式开启 GraphiQL，所以浏览器 GET `/graphql` 时可以直接使用查询页面；Elysia 和 Vite middleware 都挂载同一个 endpoint 语义。
 
 ## 外部复用
 

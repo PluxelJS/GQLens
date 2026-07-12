@@ -17,6 +17,7 @@ export function createYogaHandler(): GraphQLYogaHandler {
   const yoga = createYoga({
     schema: createSchema(),
     graphqlEndpoint: "/graphql",
+    graphiql: true,
     context: createAppContext,
     maskedErrors: process.env.NODE_ENV === "production",
     logging: process.env.NODE_ENV === "development" ? "debug" : "warn",
