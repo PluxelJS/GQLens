@@ -18,6 +18,7 @@
 
 ## 阅读方式
 
+- 接入 Vite 应用或排查 generated 文件/HMR：先看 [Vite Codegen 最佳实践](./Vite-Codegen最佳实践.md)。
 - 判断某个 API 是否应存在：先看 [API 语法规范](./规范-API语法.md)。
 - 理解核心架构：按 `01` 到 `06` 阅读主线设计路径。
 - 核对 GraphQL 特性、性能边界或 GQty 对照：查参考文档，不把它们理解为新的主线阶段。
@@ -34,6 +35,17 @@
 | [04-GraphDataStore](./04-GraphDataStore.md)            | 存储模型、records contract、路径归一、接口、一致性        |
 | [05-写入](./05-写入.md)                                | Mutation、Optimistic Update、Invalidation、冲突处理       |
 | [06-框架适配](./06-框架适配.md)                        | React adapter、Solid adapter、API 对照                    |
+
+## 应用集成路径
+
+这些文档描述 GQLens 在真实应用里的生成链路和构建工具边界。应用项目应优先使用
+`@gqlens/vite`；只有自定义构建工具或纯内存生成器才直接调用 `@gqlens/codegen`。
+
+| 文档                                                            | 内容                                               |
+| --------------------------------------------------------------- | -------------------------------------------------- |
+| [Vite Codegen 最佳实践](./Vite-Codegen最佳实践.md)              | Vite 插件、typed entry、HMR、metadata、Pluxel 用法 |
+| [Yoga + Vite example](../examples/yoga-vite-codegen/README.md)  | 可运行示例、dev/build/codegen 命令、前后端分离     |
+| [Yoga + Vite 设计记录](../examples/yoga-vite-codegen/design.md) | 完整设计推导、职责边界、变更影响矩阵               |
 
 ## 参考与规范
 

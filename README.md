@@ -15,6 +15,7 @@ Use `@gqlens/solid` instead of `@gqlens/react` for Solid.
 
 Read next:
 
+- [Vite codegen best practices](./docs/Vite-Codegen最佳实践.md)
 - [Yoga + Vite example](./examples/yoga-vite-codegen/README.md)
 - [API syntax spec](./docs/规范-API语法.md)
 - [Framework adapters](./docs/06-框架适配.md)
