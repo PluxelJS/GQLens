@@ -1,6 +1,10 @@
 # Changesets
 
-GQLens publishes all `@gqlens/*` packages as one fixed-version product.
+GQLens keeps all `@gqlens/*` packages on one `major.minor` release line.
 
 Use `pnpm changeset` for user-facing changes, then `pnpm run release:version`
-to apply the next unified version before publishing.
+to apply versions before publishing.
+
+- Patch releases should list only the packages that changed.
+- Minor and major releases should list every public `@gqlens/*` package, so all
+  packages move to the same next release line together.

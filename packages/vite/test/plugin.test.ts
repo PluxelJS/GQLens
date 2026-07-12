@@ -8,6 +8,7 @@ import { gqlens, type GQLensViteLogger } from "../src/index";
 
 const fixtureRoots = new Set<string>();
 const entryHelper = JSON.stringify(fileURLToPath(new URL("../src/entry.ts", import.meta.url)));
+const coreCodegenEntry = fileURLToPath(new URL("../../core/codegen/index.ts", import.meta.url));
 
 afterEach(async () => {
   await Promise.all([...fixtureRoots].map((root) => rm(root, { recursive: true, force: true })));
@@ -27,6 +28,88 @@ test("generates files during vite build", async () => {
   const types = await readFile(join(root, "web/gqlens/types.ts"), "utf8");
   expect(types).toContain("Viewer");
   expect(types).toContain("name");
+});
+
+test("generates files before the first frontend module load", async () => {
+  const root = await createFixture({
+    main: `import { gqlensSchema } from "../web/gqlens/accessor";
+
+export const gqlensQueryType = gqlensSchema.query.type;
+`,
+  });
+  const server = await createServer({
+    root,
+    appType: "custom",
+    configFile: false,
+    logLevel: "silent",
+    resolve: {
+      alias: {
+        "@gqlens/core/codegen": coreCodegenEntry,
+      },
+    },
+    plugins: [
+      gqlens({
+        entry: "/src/graphql-entry.ts",
+        output: "web/gqlens",
+        adapter: testAccessorAdapter,
+      }),
+    ],
+  });
+
+  try {
+    await server.listen(0);
+    const response = await fetch(new URL("src/main.ts", localServerUrl(server)));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain("gqlensQueryType");
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("skips startup codegen when generated metadata and files are current", async () => {
+  const root = await createFixture();
+  const events: string[] = [];
+  const firstServer = await createServer({
+    root,
+    appType: "custom",
+    configFile: false,
+    logLevel: "silent",
+    plugins: [
+      gqlens({
+        entry: "/src/graphql-entry.ts",
+        output: "web/gqlens",
+        logger: testLogger(events),
+      }),
+    ],
+  });
+
+  await closeServer(firstServer);
+  events.length = 0;
+
+  const secondServer = await createServer({
+    root,
+    appType: "custom",
+    configFile: false,
+    logLevel: "silent",
+    plugins: [
+      gqlens({
+        entry: "/src/graphql-entry.ts",
+        output: "web/gqlens",
+        logger: testLogger(events),
+      }),
+    ],
+  });
+
+  try {
+    expect(events).toContain(
+      "debug:Skipped GQLens startup codegen because generated files are current.",
+    );
+    expect(events).not.toContain("info:Refreshed GQLens generated files.");
+  } finally {
+    await closeServer(secondServer);
+  }
 });
 
 test("refreshes generated files and middleware through vite dev hmr", async () => {
@@ -55,6 +138,31 @@ test("refreshes generated files and middleware through vite dev hmr", async () =
     );
     const types = await readFile(join(root, "web/gqlens/types.ts"), "utf8");
     expect(types).toContain("nickname");
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("serves graphql html requests before vite spa fallback", async () => {
+  const root = await createFixture();
+  const server = await createServer({
+    root,
+    appType: "spa",
+    configFile: false,
+    logLevel: "silent",
+    plugins: [gqlens({ entry: "/src/graphql-entry.ts", output: "web/gqlens" })],
+  });
+
+  try {
+    await server.listen(0);
+    const response = await fetch(new URL("graphql", localServerUrl(server)), {
+      headers: { accept: "text/html" },
+    });
+    const body = await response.text();
+
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(body).toContain("Yoga GraphiQL");
+    expect(body).not.toContain("/src/main.ts");
   } finally {
     await closeServer(server);
   }
@@ -89,20 +197,44 @@ test("skips codegen when SDL only changes formatting", async () => {
   }
 });
 
-async function createFixture(): Promise<string> {
+async function createFixture(
+  options: { readonly main?: string | undefined } = {},
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "gqlens-vite-"));
   fixtureRoots.add(root);
   await mkdir(join(root, "src"), { recursive: true });
 
   await Promise.all([
     writeFile(join(root, "index.html"), '<script type="module" src="/src/main.ts"></script>'),
-    writeFile(join(root, "src/main.ts"), "export {};\n"),
+    writeFile(join(root, "src/main.ts"), options.main ?? "export {};\n"),
     writeFile(join(root, "src/schema.ts"), schemaSource(""), "utf8"),
     writeFile(join(root, "src/handler.ts"), handlerSource("Ada"), "utf8"),
     writeFile(join(root, "src/graphql-entry.ts"), entrySource(), "utf8"),
+    writeFile(join(root, "src/runtime.ts"), accessorRuntimeSource(), "utf8"),
   ]);
 
   return root;
+}
+
+const testAccessorAdapter = {
+  module: "/src/runtime.ts",
+  querySessionImport: "useGQLensSession",
+  liveSessionImport: "useLiveGQLensSession",
+  querySessionHook: "useGQLensSession",
+  liveSessionHook: "useLiveGQLensSession",
+  queryExport: "useQuery",
+  liveQueryExport: "useLiveQuery",
+};
+
+function accessorRuntimeSource(): string {
+  return `export function useGQLensSession() {
+  return {};
+}
+
+export function useLiveGQLensSession() {
+  return {};
+}
+`;
 }
 
 function entrySource(): string {
@@ -154,7 +286,12 @@ ${extraViewerFields}
 
 function handlerSource(name: string): string {
   return `export function createHandler() {
-  return async (_req, res) => {
+  return async (req, res) => {
+    if (req.method === "GET" && req.headers.accept?.includes("text/html")) {
+      res.setHeader("content-type", "text/html");
+      res.end("<!doctype html><title>Yoga GraphiQL</title>");
+      return;
+    }
     res.setHeader("content-type", "application/json");
     res.end(${JSON.stringify(JSON.stringify({ data: { viewer: { id: "u1", name } } }))});
   };

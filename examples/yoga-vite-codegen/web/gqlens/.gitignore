@@ -1,2 +1,3 @@
 *.ts
+.gqlens-meta.json
 !README.md

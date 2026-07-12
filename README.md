@@ -8,7 +8,7 @@ GQLens is a demand-first GraphQL client for React and Solid. Generated accessors
 
 ```sh
 pnpm add @gqlens/core @gqlens/react
-pnpm add -D @gqlens/codegen @gqlens/vite graphql
+pnpm add -D @gqlens/vite graphql
 ```
 
 Use `@gqlens/solid` instead of `@gqlens/react` for Solid.
@@ -30,7 +30,10 @@ pnpm run build
 
 ## Release
 
-GQLens publishes all `@gqlens/*` packages as one fixed-version product.
+GQLens keeps all `@gqlens/*` packages on one `major.minor` release line.
+Patch releases only need to include the packages that changed; minor and major
+releases should include every public package so they converge on the same next
+release line.
 
 ```sh
 pnpm changeset

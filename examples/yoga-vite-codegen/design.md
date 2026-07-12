@@ -9,6 +9,7 @@
 - GraphQL handler 在 `src/*` 变化后热替换，不重启 dev server。
 - 只有 GraphQL 类型系统实际变化时，才触发 GQLens codegen。
 - 只有 generated 文件内容实际变化时，才触发前端 HMR。
+- 重启 Vite 时用 generated metadata 校验 schema / 选项 / 文件 hash，命中则跳过完整 codegen。
 - 用户代码只使用真实 TS 文件，保证 TypeScript / IDE / 跳转 / 类型提示稳定。
 
 ## 目录边界
@@ -28,8 +29,7 @@ web/
   gqlens/                  # GQLens generated files
 
 tooling/
-  generate-gqlens.ts       # standalone codegen script
-  write-generated-files.ts # generated 文件 content-diff
+  generate-gqlens.ts       # standalone codegen script for tsc/tests
 ```
 
 前端只 import generated 入口：
@@ -79,6 +79,7 @@ compare with last in-memory SDL
 如果 SDL 内容变化：
     run GQLens codegen
     content-diff generated TS files
+    write .gqlens-meta.json
     changed files trigger normal Vite client HMR
 否则：
     skip codegen
@@ -100,7 +101,9 @@ native import /src/graphql-entry.ts default export
         ↓
 entry.schema()
         ↓
-run GQLens codegen
+check .gqlens-meta.json
+        ↓
+if stale/missing: run GQLens codegen
         ↓
 content-diff generated TS files
 ```
@@ -186,5 +189,6 @@ export default defineGQLensEntry({
 构建工具适配不属于 `@gqlens/core`：core 是 runtime/browser-facing 包，不引入 Node fs、GraphQL schema loading 或构建 hook。`@gqlens/codegen` 不内置构建工具 hook 或写盘策略；它只提供外部插件可调用的纯生成函数。Vite 适配单独放在 `@gqlens/vite`，既能复用 codegen，又不会把 Vite/Node fs 概念放进 core/runtime：
 
 - `generateFiles()` 接受 SDL 或 `GraphQLSchema`，返回 generated 文件内容映射。构建插件里优先传 SDL 字符串，因为 monorepo/link 场景可能存在多份 `graphql` 包实例。
-- `@gqlens/vite` 负责 output path、content-diff 写盘、watch/filter/schema loading/HMR/middleware/proxy，并在合适的 hook 中调用上述函数。
+- `@gqlens/vite` 负责 output path、content-diff 写盘、watch/filter/schema loading/HMR/middleware/proxy，并在合适的 hook 中调用上述函数；应用侧若要给 `tsc`/Node 测试预生成，也从 `@gqlens/vite` 调用同一套 `generateGQLensFiles()`。
+- `.gqlens-meta.json` 只用于启动/build 快速判断生成物是否仍然有效；缺失、版本不匹配、schema hash 不匹配、选项 hash 不匹配或文件 hash 不匹配时都会重新生成。
 - 外部 Rolldown/Rspack 插件可以复用同一条 `generateFiles()` 边界。

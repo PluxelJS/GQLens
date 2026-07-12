@@ -1,18 +1,17 @@
-import { generateFiles } from "../../../packages/codegen/src/index";
+import { generateGQLensFiles } from "@gqlens/vite";
 import { configureExampleLogging, getExampleLogger } from "../src/logging";
 import { createSchemaSDL } from "../src/schema";
-import { writeGeneratedFiles } from "./write-generated-files";
 
 configureExampleLogging();
 
 const logger = getExampleLogger("codegen");
 const startedAt = performance.now();
-const files = await generateFiles({
+const writeStats = await generateGQLensFiles({
   schema: createSchemaSDL(),
   framework: "react",
+  output: "web/gqlens",
 });
 
-const writeStats = await writeGeneratedFiles(files, "web/gqlens");
 logger.info("Generated GQLens files in {durationMs}ms.", {
   durationMs: Math.round(performance.now() - startedAt),
   output: "web/gqlens",

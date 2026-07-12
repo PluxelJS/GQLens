@@ -1,6 +1,6 @@
 # Yoga + Vite + GQLens Codegen 示例
 
-这个示例展示如何把 Yoga、Vite HMR 和 GQLens codegen 串起来。`@gqlens/codegen` 只负责把 schema 生成文件内容；`@gqlens/vite` 负责 Vite hook、schema diff、content-diff 写盘和可选 `/graphql` dev middleware。
+这个示例展示如何把 Yoga、Vite HMR 和 GQLens codegen 串起来。应用只需要安装 `@gqlens/vite`；插件会在 Vite dev server 启动和 build 开始时生成前端文件，并负责 schema diff、content-diff 写盘和可选 `/graphql` dev middleware。
 
 ## 核心边界
 
@@ -10,6 +10,8 @@
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
 - Vite dev server 同时承载前端、`/graphql` middleware、schema diff 和 codegen HMR。
 - build 下直接 native import 同一个 GraphQL entry 的 default export，并在 `buildStart` 里调用 `generateFiles()`。
+- dev/build 不需要前置 `npm run codegen`；插件会在前端模块加载前生成 `web/gqlens/*`。
+- 生成后会写 `.gqlens-meta.json`；下次启动若 schema、生成选项和输出文件 hash 都匹配，会跳过完整 codegen。
 - dev 插件只用 Vite `handleHotUpdate`，不维护额外依赖图。
 
 ## 关键配置
@@ -57,18 +59,17 @@ export function createSchemaSDL() {
 
 插件本身不依赖 LogTape；这个 example 只是通过 `logger` 选项把本地日志注入进去。
 
-standalone `npm run codegen` 脚本仍然直接复用 `@gqlens/codegen`，并用示例本地 helper 做 content-diff 写盘：
+standalone `npm run codegen` 只给 `tsc --noEmit`、Node 测试或非 Vite 工具链使用。它从 `@gqlens/vite` 调用同一套生成能力，不要求应用额外安装 `@gqlens/codegen`：
 
 ```ts
-const files = await generateFiles({
+const writeStats = await generateGQLensFiles({
   schema: sdl,
   framework: "react",
+  output: "web/gqlens",
 });
-
-await writeGeneratedFiles(files, "web/gqlens");
 ```
 
-如果你想写自己的 Rolldown/Rspack 插件，只需要在合适的 hook 里拿到 SDL，然后调用 `@gqlens/codegen` 的 `generateFiles()`。如果使用 Vite，优先复用 `@gqlens/vite`。
+如果你想写自己的 Rolldown/Rspack 插件，只需要在合适的 hook 里拿到 SDL，然后调用 `@gqlens/codegen` 的 `generateFiles()`。如果只是应用侧使用 Vite，优先复用 `@gqlens/vite`，不需要直接依赖 `@gqlens/codegen`。
 
 `generateFiles()` 也接受 `GraphQLSchema`，但构建工具里可能出现多份 `graphql` 包实例；最稳的方式是在应用侧用同一份 `graphql` 先 `printSchema()`，再把 SDL 字符串交给 GQLens。
 
@@ -180,6 +181,7 @@ GQLENS_EXAMPLE_LOG_LEVEL=debug npm run dev
 - `web/gqlens/types.ts`
 - `web/gqlens/accessor.ts`
 - `web/gqlens/invalidation.ts`
+- `web/gqlens/.gqlens-meta.json`
 
 这些文件来自 schema，不应该手写。
 
@@ -204,6 +206,8 @@ npm run verify
 npm run dev
 ```
 
+`npm run dev` 和 `npm run build` 都由 Vite 插件自动生成 `web/gqlens/*`，不需要先运行 `npm run codegen`。
+
 如果要模拟前后端分离，开两个终端：
 
 ```sh
@@ -211,7 +215,7 @@ npm run dev:server
 npm run dev:client
 ```
 
-也可以单独检查生成物和类型：
+也可以单独检查生成物和类型。这里的 `codegen` 是给 `tsc`/Node 测试这种绕过 Vite 的命令使用：
 
 ```sh
 npm run codegen

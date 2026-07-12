@@ -6,6 +6,7 @@ import { buildASTSchema, parse, printSchema } from "graphql";
 import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from "vite";
 import type { GQLensViteEntry, NodeHandler } from "./entry";
 import { GQLensViteError } from "./error";
+import { generatedFilesAreCurrent, writeGeneratedMetadata } from "./generated-metadata";
 import { writeGeneratedFiles } from "./write-generated-files";
 
 type GenerateFiles = typeof generateFilesFunction;
@@ -142,6 +143,24 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
       return;
     }
 
+    const output = rootPath(options.output);
+    if (
+      force &&
+      (await generatedFilesAreCurrent({
+        schema: sdl,
+        framework: options.framework,
+        adapter: options.adapter,
+        output,
+      }))
+    ) {
+      logger.debug("Skipped GQLens startup codegen because generated files are current.", {
+        entry: entryId,
+        output: options.output,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+      return;
+    }
+
     const files = await (
       await loadGenerateFiles()
     )({
@@ -149,7 +168,14 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
       framework: options.framework,
       adapter: options.adapter,
     });
-    const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
+    const writeStats = await writeGeneratedFiles(files, output);
+    await writeGeneratedMetadata({
+      schema: sdl,
+      framework: options.framework,
+      adapter: options.adapter,
+      output,
+      files,
+    });
     logger.info("Refreshed GQLens generated files.", {
       reason: force ? "startup" : "schema-changed",
       entry: entryId,
@@ -165,6 +191,22 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
     const startedAt = performance.now();
     const entry = await loadBuildEntry();
     const schema = normalizeSchemaSDL(await entry.schema(), entryPath());
+    const output = rootPath(options.output);
+    if (
+      await generatedFilesAreCurrent({
+        schema,
+        framework: options.framework,
+        adapter: options.adapter,
+        output,
+      })
+    ) {
+      logger.debug("Skipped GQLens build codegen because generated files are current.", {
+        output: options.output,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+      return;
+    }
+
     const files = await (
       await loadGenerateFiles()
     )({
@@ -172,7 +214,14 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
       framework: options.framework,
       adapter: options.adapter,
     });
-    const writeStats = await writeGeneratedFiles(files, rootPath(options.output));
+    const writeStats = await writeGeneratedFiles(files, output);
+    await writeGeneratedMetadata({
+      schema,
+      framework: options.framework,
+      adapter: options.adapter,
+      output,
+      files,
+    });
     logger.info("Generated GQLens files for build in {durationMs}ms.", {
       durationMs: Math.round(performance.now() - startedAt),
       output: options.output,
@@ -233,16 +282,14 @@ export function gqlens(options: GQLensVitePluginOptions): Plugin {
         return;
       }
 
-      return () => {
-        viteServer.middlewares.use((req, res, next) => {
-          if (!isGraphQLRequest(req.url)) {
-            next();
-            return;
-          }
+      viteServer.middlewares.use((req, res, next) => {
+        if (!isGraphQLRequest(req.url)) {
+          next();
+          return;
+        }
 
-          void handleGraphQLRequest(req, res, next);
-        });
-      };
+        void handleGraphQLRequest(req, res, next);
+      });
     },
 
     async handleHotUpdate(ctx) {

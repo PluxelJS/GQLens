@@ -13,22 +13,31 @@ const repositoryUrl = "https://github.com/PluxelJS/GQLens";
 const packageJsons = await readWorkspacePackages();
 const publicPackages = packageJsons.filter((pkg) => pkg.name?.startsWith("@gqlens/"));
 const versions = new Map(publicPackages.map((pkg) => [pkg.name, pkg.version]));
-const uniqueVersions = new Set(versions.values());
+const releaseLines = new Map(
+  publicPackages.map((pkg) => [pkg.name, parseReleaseLine(pkg.version)]),
+);
+const uniqueReleaseLines = new Set(releaseLines.values());
 const errors = [];
 
 if (publicPackages.length === 0) {
   errors.push("No @gqlens/* packages found under packages/.");
 }
 
-if (uniqueVersions.size > 1) {
+for (const pkg of publicPackages) {
+  if (!releaseLines.get(pkg.name)) {
+    errors.push(`${pkg.name} version must be valid semver, got ${pkg.version}.`);
+  }
+}
+
+if (uniqueReleaseLines.size > 1) {
   errors.push(
-    `All @gqlens/* packages must share one version. Found: ${[...versions]
+    `All @gqlens/* packages must share one major.minor release line. Found: ${[...versions]
       .map(([name, version]) => `${name}@${version}`)
       .join(", ")}`,
   );
 }
 
-const [workspaceVersion] = uniqueVersions;
+const [workspaceReleaseLine] = uniqueReleaseLines;
 
 for (const pkg of publicPackages) {
   if (pkg.repository?.url !== repositoryUrl) {
@@ -45,11 +54,11 @@ for (const pkg of publicPackages) {
       if (!versions.has(name)) {
         continue;
       }
-      if (range === "workspace:*" || range === workspaceVersion) {
+      if (range === "workspace:*" || range === versions.get(name)) {
         continue;
       }
       errors.push(
-        `${pkg.name} ${field}.${name} must be workspace:* in source or ${workspaceVersion} in a packed manifest, got ${range}.`,
+        `${pkg.name} ${field}.${name} must be workspace:* in source or ${versions.get(name)} in a packed manifest, got ${range}.`,
       );
     }
   }
@@ -61,7 +70,19 @@ if (errors.length > 0) {
   }
   process.exitCode = 1;
 } else {
-  console.log(`Release invariants OK: ${publicPackages.length} packages at ${workspaceVersion}.`);
+  console.log(
+    `Release invariants OK: ${publicPackages.length} packages on ${workspaceReleaseLine}.x.`,
+  );
+}
+
+function parseReleaseLine(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    String(version),
+  );
+  if (!match) {
+    return undefined;
+  }
+  return `${match[1]}.${match[2]}`;
 }
 
 async function readWorkspacePackages() {
