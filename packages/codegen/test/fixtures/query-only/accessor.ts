@@ -125,4 +125,3 @@ export function defineSelection(callback: (q: QueryNode, v: (name: string) => Va
 export function defineInvalidation(callback: (q: QueryNode) => unknown): GraphDataInvalidation {
   return defineGQLensInvalidation<QueryNode>(gqlensSchema, gqlensSchema.query, callback);
 }
-

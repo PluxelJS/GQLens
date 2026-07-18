@@ -45,6 +45,14 @@ describe("@gqlens/codegen", () => {
     });
   });
 
+  test("ends generated accessors with exactly one newline", async () => {
+    const files = await generateFiles({
+      schema: "type Query { greeting: String! }",
+    });
+
+    expect(files["accessor.ts"]).toMatch(/[^\n]\n$/);
+  });
+
   test("wraps invalid SDL as a stable codegen error", async () => {
     await expect(generateFiles({ schema: "type Query {" })).rejects.toMatchObject({
       name: "GQLensCodegenError",

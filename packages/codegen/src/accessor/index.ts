@@ -39,5 +39,5 @@ export function generateAccessor(schema: GraphQLSchema, adapter: AccessorAdapter
     writeMutationApi(writer, mutationType);
   }
 
-  return writer.toString();
+  return `${writer.toString().trimEnd()}\n`;
 }
