@@ -50,6 +50,6 @@ export { plan } from "./planner";
 export type { QuerySession } from "./session";
 export type { LiveQuerySessionOptions, QuerySessionOptions } from "./session";
 export { createLiveQuerySession, createQuerySession } from "./session";
-export type { Fetcher, LiveSubscriber } from "./transport";
+export type { Fetcher, FetcherContext, LiveSubscriber } from "./transport";
 export { createFetchTransport, createLiveTransport } from "./transport";
 export { bindSelection } from "../codegen/index";

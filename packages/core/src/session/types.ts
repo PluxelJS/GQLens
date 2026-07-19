@@ -15,4 +15,5 @@ export interface QuerySession {
   schedule(): void;
   refetch(): void;
   invalidate(specs: readonly GraphDataInvalidation[]): void;
+  dispose(): void;
 }

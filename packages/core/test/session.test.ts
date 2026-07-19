@@ -26,6 +26,66 @@ const p = (steps: SelectionStep[]): SelectionPath => ({
 // ─── QuerySession ──────────────────────────────────────────────────────────
 
 describe("QuerySession", () => {
+  test("aborts a superseded request with a session-owned signal", async () => {
+    const cache = createGraphDataStore();
+    const signals: AbortSignal[] = [];
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockImplementationOnce(
+        (_operation, context) =>
+          new Promise((_resolve, reject) => {
+            const signal = context!.signal!;
+            signals.push(signal);
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+      )
+      .mockImplementationOnce(async (_operation, context) => {
+        signals.push(context!.signal!);
+        return { viewer: { __typename: "User", id: "2" } };
+      });
+    const session = createQuerySession({
+      store: cache,
+      fetcher,
+    });
+    const reader = session.mount();
+    session.replace(reader, [{ root: "Query", steps: [{ field: "viewer" }, { field: "id" }] }]);
+    session.schedule();
+    await nextMicrotask();
+
+    session.replace(reader, [
+      { root: "Query", steps: [{ field: "viewer" }, { field: "id" }] },
+      { root: "Query", steps: [{ field: "viewer" }, { field: "name" }] },
+    ]);
+    session.schedule();
+    await nextMacrotask();
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(session.error()).toBeNull();
+  });
+
+  test("dispose aborts the active request", async () => {
+    const cache = createGraphDataStore();
+    let signal: AbortSignal | undefined;
+    const session = createQuerySession({
+      store: cache,
+      fetcher: (_operation, context) => {
+        signal = context?.signal;
+        return new Promise(() => undefined);
+      },
+    });
+    const reader = session.mount();
+    session.select(reader, p([{ field: "viewer" }]));
+    session.schedule();
+    await nextMicrotask();
+
+    session.dispose();
+
+    expect(signal?.aborted).toBe(true);
+    expect(session.loading()).toBe(false);
+  });
+
   test("sets error when fetcher rejects", async () => {
     const cache = createGraphDataStore();
     const session = createQuerySession({

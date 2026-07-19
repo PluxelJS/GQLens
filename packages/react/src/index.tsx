@@ -165,7 +165,7 @@ export function GQLensProvider(props: {
     };
   }, [store, fetcher, props.config.query, subscribe]);
 
-  useEffect(() => closeLive, [closeLive]);
+  useCommittedCleanup(closeLive);
 
   return createElement(ConfigContext.Provider, { value: runtime }, props.children);
 }
@@ -199,7 +199,7 @@ function useSessionState(mode: "query" | "live", config: QueryConfig = {}): Sess
     () => (mode === "live" ? global.liveSession : global.session)({ policy, ttl, schema, scope }),
     [global, mode, policy, schema, scope, ttl],
   );
-  useEffect(() => lease.release, [lease]);
+  useCommittedCleanup(lease.release);
 
   const reader = useRenderTracking(lease.session);
 
@@ -274,4 +274,26 @@ function useSessionScope(scope: string | undefined): string {
     localScope.current = `local:${++nextLocalScopeId}`;
   }
   return localScope.current;
+}
+
+/**
+ * React StrictMode replays passive effects as setup -> cleanup -> setup without discarding the
+ * mounted resource. Defer cleanup by one microtask so an immediate setup of the same resource can
+ * renew its lease; replaced resources and genuine unmounts still clean up normally.
+ */
+function useCommittedCleanup(cleanup: () => void): void {
+  const leases = useRef(new Map<() => void, symbol>());
+  useEffect(() => {
+    const token = Symbol();
+    leases.current.set(cleanup, token);
+    return () => {
+      queueMicrotask(() => {
+        if (leases.current.get(cleanup) !== token) {
+          return;
+        }
+        leases.current.delete(cleanup);
+        cleanup();
+      });
+    };
+  }, [cleanup]);
 }

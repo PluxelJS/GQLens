@@ -147,10 +147,12 @@ describe("React adapter", () => {
       expect(fetcher).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ variables: { v0: "1" } }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
       expect(fetcher).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ variables: { v0: "2" } }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
   });
@@ -279,6 +281,7 @@ describe("React adapter", () => {
         expect.objectContaining({
           query: expect.stringContaining("viewer"),
         }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 
@@ -631,6 +634,42 @@ describe("React adapter", () => {
 
       await waitFor(() => {
         expect(cacheField(cache, cache.entity("User", "1"), "name").sig()).toBe("Alice");
+      });
+    });
+
+    test("strict mode does not close a live transport during effect replay", async () => {
+      const close = vi.fn<() => void>();
+      const liveSubscriber = vi.fn<LiveSubscriber>(() => () => undefined);
+
+      function StrictWrapper({ children }: { children: React.ReactNode }) {
+        return createElement(
+          StrictMode,
+          null,
+          createElement(GQLensProvider, {
+            config: { live: { subscriber: liveSubscriber, close } },
+            children,
+          }),
+        );
+      }
+
+      const view = renderHook(
+        () => {
+          const state = useLiveQuery();
+          state.demand("Query", [{ field: "viewer" }]);
+          return state;
+        },
+        { wrapper: StrictWrapper },
+      );
+
+      await waitFor(() => {
+        expect(liveSubscriber).toHaveBeenCalled();
+      });
+      await act(async () => Promise.resolve());
+      expect(close).not.toHaveBeenCalled();
+
+      view.unmount();
+      await waitFor(() => {
+        expect(close).toHaveBeenCalledTimes(1);
       });
     });
 

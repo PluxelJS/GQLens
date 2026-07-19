@@ -2,7 +2,12 @@ import type { GraphQLOperation, GraphQLResult } from "./types";
 import { isRecord } from "./guards";
 import { GQLensError } from "./error";
 
-export type Fetcher = (op: GraphQLOperation) => Promise<unknown>;
+export interface FetcherContext {
+  /** Signal owned by the operation's session or mutation caller. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+export type Fetcher = (op: GraphQLOperation, context?: FetcherContext) => Promise<unknown>;
 export type LiveSubscriber = (
   op: GraphQLOperation,
   onData: (data: unknown) => void,
@@ -26,7 +31,7 @@ interface LiveSocket {
 type LiveSocketConstructor = new (endpoint: string) => LiveSocket;
 
 export function createFetchTransport(endpoint: string): Fetcher {
-  return async (op: GraphQLOperation): Promise<unknown> => {
+  return async (op: GraphQLOperation, context?: FetcherContext): Promise<unknown> => {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,6 +40,7 @@ export function createFetchTransport(endpoint: string): Fetcher {
         variables: op.variables,
         operationName: op.operationName,
       }),
+      ...(context?.signal ? { signal: context.signal } : {}),
     });
 
     if (!response.ok) {

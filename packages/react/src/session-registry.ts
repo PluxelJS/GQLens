@@ -43,6 +43,7 @@ export function createSessionRegistry(
           entry.refs -= 1;
           if (entry.refs === 0) {
             entries.delete(key);
+            entry.session.dispose();
           }
         },
       };

@@ -28,12 +28,17 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
   const error = createSignal<Error | null>(null);
   const inflight = new Set<string>();
   const completed = new Map<string, number>();
+  const controllers = new Map<number, AbortController>();
   const selectionPlanCache = createPlanCache();
   let scheduled = false;
   let forceNext = false;
   let latestRequest = 0;
+  let disposed = false;
 
   function schedule(force = false): void {
+    if (disposed) {
+      return;
+    }
     forceNext ||= force;
     if (scheduled) {
       return;
@@ -44,6 +49,9 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
       scheduled = false;
       const paths = collector.snapshot();
       if (paths.length === 0) {
+        latestRequest += 1;
+        abortInflight("GQLens query has no active readers");
+        loading(false);
         return;
       }
 
@@ -70,10 +78,13 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
 
       inflight.add(key);
       const request = ++latestRequest;
+      abortInflight("GQLens query was superseded");
+      const controller = new AbortController();
+      controllers.set(request, controller);
       loading(true);
       error(null);
 
-      fetcher(operation)
+      fetcher(operation, { signal: controller.signal })
         .then((data) => {
           if (request !== latestRequest) {
             return undefined;
@@ -93,12 +104,13 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
           return undefined;
         })
         .catch((reason) => {
-          if (request !== latestRequest) {
+          if (request !== latestRequest || controller.signal.aborted) {
             return;
           }
           error(reason instanceof Error ? reason : new Error(String(reason)));
         })
         .finally(() => {
+          controllers.delete(request);
           inflight.delete(key);
           loading(inflight.size > 0);
         });
@@ -114,6 +126,7 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
 
     unmount(reader) {
       collector.unregister(reader);
+      schedule();
     },
 
     begin(reader) {
@@ -156,7 +169,25 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
       completed.clear();
       schedule(true);
     },
+
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      latestRequest += 1;
+      collector.reset();
+      abortInflight("GQLens query session was disposed");
+      loading(false);
+    },
   };
+
+  function abortInflight(message: string): void {
+    for (const controller of controllers.values()) {
+      controller.abort(new Error(message));
+    }
+    controllers.clear();
+  }
 }
 
 function isCompletedFresh(completed: Map<string, number>, key: string): boolean {

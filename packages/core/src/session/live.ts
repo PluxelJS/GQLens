@@ -28,8 +28,12 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
   let forceNext = false;
   let activeKey = "";
   let unsubscribe: (() => void) | null = null;
+  let disposed = false;
 
   function schedule(force = false): void {
+    if (disposed) {
+      return;
+    }
     forceNext ||= force;
     if (scheduled) {
       return;
@@ -130,6 +134,18 @@ export function createLiveQuerySession(options: LiveQuerySessionOptions): QueryS
     invalidate(specs) {
       applyInvalidations(store, specs, schema);
       schedule(true);
+    },
+
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      collector.reset();
+      unsubscribe?.();
+      unsubscribe = null;
+      activeKey = "";
+      loading(false);
     },
   };
 }
