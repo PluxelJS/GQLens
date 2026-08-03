@@ -70,6 +70,7 @@ describe("Solid adapter", () => {
         expect.objectContaining({
           query: expect.stringContaining("viewer"),
         }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 
@@ -113,6 +114,7 @@ describe("Solid adapter", () => {
         expect.objectContaining({
           variables: { v0: "1" },
         }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
   });
