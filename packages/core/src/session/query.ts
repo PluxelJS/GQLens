@@ -26,9 +26,8 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
   const collector = createSelectionCollector();
   const loading = createSignal(false);
   const error = createSignal<Error | null>(null);
-  const inflight = new Set<string>();
+  const inflight = new Map<string, { request: number; controller: AbortController }>();
   const completed = new Map<string, number>();
-  const controllers = new Map<number, AbortController>();
   const selectionPlanCache = createPlanCache();
   let scheduled = false;
   let forceNext = false;
@@ -76,11 +75,10 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
         return;
       }
 
-      inflight.add(key);
       const request = ++latestRequest;
       abortInflight("GQLens query was superseded");
       const controller = new AbortController();
-      controllers.set(request, controller);
+      inflight.set(key, { request, controller });
       loading(true);
       error(null);
 
@@ -110,8 +108,9 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
           error(reason instanceof Error ? reason : new Error(String(reason)));
         })
         .finally(() => {
-          controllers.delete(request);
-          inflight.delete(key);
+          if (inflight.get(key)?.request === request) {
+            inflight.delete(key);
+          }
           loading(inflight.size > 0);
         });
     });
@@ -183,10 +182,12 @@ export function createQuerySession(options: QuerySessionOptions): QuerySession {
   };
 
   function abortInflight(message: string): void {
-    for (const controller of controllers.values()) {
+    for (const { controller } of inflight.values()) {
       controller.abort(new Error(message));
     }
-    controllers.clear();
+    // Release operation keys immediately. A fetcher is allowed to settle after abort; ownership in
+    // the request finalizer prevents that obsolete promise from clearing a newer matching request.
+    inflight.clear();
   }
 }
 

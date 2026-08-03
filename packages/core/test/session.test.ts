@@ -65,6 +65,47 @@ describe("QuerySession", () => {
     expect(session.error()).toBeNull();
   });
 
+  test("starts a fresh request when a selection returns to a superseded operation", async () => {
+    const cache = createGraphDataStore();
+    const resolvers: Array<(data: Record<string, unknown>) => void> = [];
+    const signals: AbortSignal[] = [];
+    const fetcher = vi.fn<Fetcher>(
+      (_operation, context) =>
+        new Promise((resolve) => {
+          signals.push(context!.signal!);
+          resolvers.push(resolve);
+        }),
+    );
+    const session = createQuerySession({ store: cache, fetcher });
+    const reader = session.mount();
+    const alice = p([{ field: "user", args: { id: "1" } }, { field: "name" }]);
+    const bob = p([{ field: "user", args: { id: "2" } }, { field: "name" }]);
+
+    session.replace(reader, [alice]);
+    session.schedule();
+    await nextMicrotask();
+    session.replace(reader, [bob]);
+    session.schedule();
+    await nextMicrotask();
+    session.replace(reader, [alice]);
+    session.schedule();
+    await nextMicrotask();
+
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(signals.map((signal) => signal.aborted)).toStrictEqual([true, true, false]);
+    resolvers[0]?.({ user: { __typename: "User", id: "1", name: "stale Alice" } });
+    resolvers[1]?.({ user: { __typename: "User", id: "2", name: "Bob" } });
+    await nextMacrotask();
+
+    expect(session.loading()).toBe(true);
+    expect(cacheField<string>(cache, cache.entity("User", "1"), "name").sig()).toBeUndefined();
+    resolvers[2]?.({ user: { __typename: "User", id: "1", name: "fresh Alice" } });
+    await nextMacrotask();
+
+    expect(session.loading()).toBe(false);
+    expect(cacheField<string>(cache, cache.entity("User", "1"), "name").sig()).toBe("fresh Alice");
+  });
+
   test("dispose aborts the active request", async () => {
     const cache = createGraphDataStore();
     let signal: AbortSignal | undefined;
