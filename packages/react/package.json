@@ -31,12 +31,13 @@
     "build": "tsdown"
   },
   "devDependencies": {
-    "@testing-library/react": "^16",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19",
-    "jsdom": "^29.1.1",
-    "react": "^19.1.0",
-    "react-dom": "^19"
+    "@gqlens/core": "workspace:*",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "jsdom": "^30.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

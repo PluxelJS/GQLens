@@ -41,7 +41,7 @@
     "build": "tsdown"
   },
   "dependencies": {
-    "alien-signals": "^3.2"
+    "alien-signals": "^3.2.1"
   },
   "engines": {
     "node": ">=24.12"

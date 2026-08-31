@@ -31,7 +31,8 @@
     "build": "tsdown"
   },
   "devDependencies": {
-    "solid-js": "^1.9.0"
+    "@gqlens/core": "workspace:*",
+    "solid-js": "^1.9.15"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",
