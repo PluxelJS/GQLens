@@ -192,18 +192,14 @@ GQLENS_EXAMPLE_LOG_LEVEL=debug pnpm run dev
 
 ## 运行
 
-先在仓库根目录构建本地包：
+示例属于 GQLens 仓库工作区，共用根 catalog 和锁文件；不单独维护依赖安装。先在仓库根目录安装并验证（包含本示例）：
 
 ```sh
+pnpm install --frozen-lockfile
 pnpm run verify
 ```
 
-再进入本示例目录：
-
-```sh
-pnpm install
-pnpm run verify
-```
+再进入本示例目录运行开发命令。示例服务端使用根 `pnpm-workspace.yaml` 的 `yoga` catalog 保留 GraphQL 16；库本身同时支持 GraphQL 16 和 17。
 
 开发时默认只需要：
 

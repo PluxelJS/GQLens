@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "examples/*"
 minimumReleaseAgeExclude:
   - "@vitest/mocker@5.0.0"
   - "@vitest/spy@5.0.0"
@@ -7,24 +8,33 @@ minimumReleaseAgeExclude:
   - "@graphql-codegen/core@6.2.2"
   - "@graphql-codegen/plugin-helpers@7.4.2"
   - "@graphql-codegen/visitor-plugin-common@7.2.9"
+
+allowBuilds:
+  esbuild: true
 catalogs:
   backend:
     graphql: ^17.0.2
   dev:
     "@testing-library/react": ^16.3.3
+    "@vitejs/plugin-react": ^6.0.3
     jsdom: ^30.1.2
     solid-js: ^1.9.15
+    tsx: ^4.23.0
   frontend:
     "@types/react": ^19.3.0
     "@types/react-dom": ^19.3.0
     react: ^19.3.0
     react-dom: ^19.3.0
   prod:
+    "@elysiajs/node": ^1.4.5
     "@graphql-codegen/core": ^6.2.2
     "@graphql-codegen/typescript": ^6.1.1
     "@graphql-codegen/visitor-plugin-common": ^7.2.9
+    "@logtape/logtape": ^2.2.3
     alien-signals: ^3.2.1
     code-block-writer: ^13.0.3
+    elysia: ^1.4.29
+    graphql-yoga: ^5.21.2
   test:
     vitest: ^5.0.3
   tooling:
@@ -37,3 +47,5 @@ catalogs:
     turbo: ^2.11.7
     typescript: ^7.0.2
     vite: ^8.3.3
+  yoga:
+    graphql: ^16.14.2

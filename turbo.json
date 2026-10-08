@@ -6,6 +6,16 @@
       "outputs": ["dist/**"]
     },
     "typecheck": {},
-    "test": {}
+    "test": {},
+    "gqlens-yoga-vite-codegen-example#typecheck": {
+      "dependsOn": ["build"]
+    },
+    "gqlens-yoga-vite-codegen-example#test": {
+      "dependsOn": ["build"]
+    },
+    "gqlens-yoga-vite-codegen-example#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "web/gqlens/**"]
+    }
   }
 }

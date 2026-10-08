@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 import { gqlens } from "@gqlens/vite";
-import { configureExampleLogging, getExampleLogger } from "./src/logging";
+import { configureExampleLogging, getExampleLogger } from "./src/logging.ts";
 
 configureExampleLogging();
 

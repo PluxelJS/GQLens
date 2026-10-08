@@ -21,7 +21,7 @@
     "format:write": "oxfmt --write .",
     "verify": "pnpm run release:check && pnpm run lint && pnpm run format && pnpm exec turbo run typecheck build test && pnpm source-declarations:check",
     "catalog:migrate": "pncat migrate --yes",
-    "catalog:check": "pncat detect --yes"
+    "catalog:detect": "pncat detect --yes"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:tooling",
