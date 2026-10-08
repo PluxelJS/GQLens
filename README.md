@@ -41,3 +41,7 @@ pnpm changeset
 pnpm run release:version
 pnpm run release:publish
 ```
+
+## Dependency catalogs
+
+Development and runtime dependency versions are managed with pncat in the root `pnpm-workspace.yaml`. Run `pnpm catalog:migrate` to migrate declarations and `pnpm install` to update the lockfile. Published peer ranges remain compatibility declarations. Each package keeps its direct dependency declarations. When these packages are explicit members of a parent workspace, that workspace supplies the same named catalogs and selects their installed versions.

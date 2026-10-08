@@ -33,14 +33,14 @@
     "update-fixtures": "npm run build && node scripts/update-fixtures.mjs"
   },
   "dependencies": {
-    "@graphql-codegen/core": "^6.2.0",
-    "@graphql-codegen/typescript": "^6.1.0",
-    "@graphql-codegen/visitor-plugin-common": "^7.2.5",
-    "code-block-writer": "^13.0.3"
+    "@graphql-codegen/core": "catalog:prod",
+    "@graphql-codegen/typescript": "catalog:prod",
+    "@graphql-codegen/visitor-plugin-common": "catalog:prod",
+    "code-block-writer": "catalog:prod"
   },
   "devDependencies": {
     "@gqlens/core": "workspace:*",
-    "graphql": "^17.0.2"
+    "graphql": "catalog:backend"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

@@ -41,8 +41,8 @@
   },
   "devDependencies": {
     "@gqlens/core": "workspace:*",
-    "graphql": "^17.0.2",
-    "vite": "^8.2.2"
+    "graphql": "catalog:backend",
+    "vite": "catalog:tooling"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

@@ -19,17 +19,20 @@
     "lint": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives packages",
     "format": "oxfmt --check .",
     "format:write": "oxfmt --write .",
-    "verify": "pnpm run release:check && pnpm run lint && pnpm run format && pnpm exec turbo run typecheck build test && pnpm source-declarations:check"
+    "verify": "pnpm run release:check && pnpm run lint && pnpm run format && pnpm exec turbo run typecheck build test && pnpm source-declarations:check",
+    "catalog:migrate": "pncat migrate --yes",
+    "catalog:check": "pncat detect --yes"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1",
-    "@types/node": "^26.4.0",
-    "oxfmt": "^0.65.0",
-    "oxlint": "^1.80.0",
-    "tsdown": "^0.22.14",
-    "turbo": "^2.10.12",
-    "typescript": "^7.0.2",
-    "vitest": "5.0.0"
+    "@changesets/cli": "catalog:tooling",
+    "@types/node": "catalog:tooling",
+    "oxfmt": "catalog:tooling",
+    "oxlint": "catalog:tooling",
+    "pncat": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "turbo": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vitest": "catalog:test"
   },
   "engines": {
     "node": ">=24.12"
