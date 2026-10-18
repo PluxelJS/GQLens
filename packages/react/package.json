@@ -35,10 +35,10 @@
     "@testing-library/react": "catalog:test",
     "@types/react": "catalog:frontend",
     "@types/react-dom": "catalog:frontend",
-    "jsdom": "catalog:test",
+    "jsdom": "catalog:dev",
     "react": "catalog:frontend",
     "react-dom": "catalog:frontend",
-    "vite-plus": "catalog:tooling"
+    "vite-plus": "catalog:build"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

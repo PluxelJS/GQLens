@@ -44,7 +44,7 @@
     "alien-signals": "catalog:backend"
   },
   "devDependencies": {
-    "vite-plus": "catalog:tooling"
+    "vite-plus": "catalog:build"
   },
   "engines": {
     "node": ">=24.12"

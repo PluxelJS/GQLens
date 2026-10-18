@@ -33,7 +33,7 @@
   "devDependencies": {
     "@gqlens/core": "workspace:*",
     "solid-js": "catalog:backend",
-    "vite-plus": "catalog:tooling"
+    "vite-plus": "catalog:build"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

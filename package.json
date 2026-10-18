@@ -26,7 +26,7 @@
     "@types/node": "catalog:tooling",
     "pncat": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "vite-plus": "catalog:tooling",
+    "vite-plus": "catalog:build",
     "vitest": "catalog:test"
   },
   "engines": {
