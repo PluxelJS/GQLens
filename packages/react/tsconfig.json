@@ -3,5 +3,5 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM"]
   },
-  "include": ["src", "test", "*.config.mts"]
+  "include": ["src", "test", "*.config.mts", "*.config.ts"]
 }

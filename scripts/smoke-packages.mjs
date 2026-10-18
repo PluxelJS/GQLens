@@ -20,8 +20,8 @@ try {
 
   for (const name of packages) {
     const output = execFileSync(
-      "pnpm",
-      ["--filter", name, "pack", "--pack-destination", tarballDir, "--json"],
+      "vp",
+      ["pm", "pack", "--filter", name, "--pack-destination", tarballDir, "--json"],
       { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
     );
     const packed = JSON.parse(output);
@@ -34,6 +34,7 @@ try {
       {
         private: true,
         type: "module",
+        packageManager: "pnpm@11.28.2",
         dependencies: {
           ...tarballs,
           graphql: "^16",
@@ -43,8 +44,8 @@ try {
           vite: "^8",
         },
         devDependencies: {
-          typescript: "^6",
-          "@types/node": "^25",
+          typescript: "^7",
+          "@types/node": "^26",
           "@types/react": "^19",
           "@types/react-dom": "^19",
         },
@@ -120,11 +121,11 @@ try {
     "utf8",
   );
 
-  execFileSync("pnpm", ["install", "--ignore-scripts"], {
+  execFileSync("vp", ["install", "--ignore-scripts"], {
     cwd: consumerDir,
     stdio: "inherit",
   });
-  execFileSync("pnpm", ["exec", "tsc", "--noEmit"], {
+  execFileSync("vp", ["exec", "tsc", "--noEmit"], {
     cwd: consumerDir,
     stdio: "inherit",
   });

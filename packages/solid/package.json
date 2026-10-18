@@ -26,13 +26,14 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "tsdown"
+    "build": "vp run compile",
+    "test": "vp run check-tests",
+    "typecheck": "vp run check-types"
   },
   "devDependencies": {
     "@gqlens/core": "workspace:*",
-    "solid-js": "^1.9.15"
+    "solid-js": "catalog:backend",
+    "vite-plus": "catalog:tooling"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

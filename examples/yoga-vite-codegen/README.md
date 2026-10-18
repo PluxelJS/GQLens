@@ -10,7 +10,7 @@
 - 只有 SDL 变化时才调用 `generateFiles()`；磁盘 content-diff 只发生在应用侧写 generated TS 文件前。
 - Vite dev server 同时承载前端、`/graphql` middleware、schema diff 和 codegen HMR；独立 Elysia server 只用于前后端分离模式。
 - build 下直接 native import 同一个 GraphQL entry 的 default export，并在 `buildStart` 里调用 `generateFiles()`。
-- dev/build 不需要前置 `pnpm run codegen`；插件会在前端模块加载前生成 `web/gqlens/*`。
+- dev/build 不需要前置 `vp run codegen`；插件会在前端模块加载前生成 `web/gqlens/*`。
 - 生成后会写 `.gqlens-meta.json`；下次启动若 schema、生成选项和输出文件 hash 都匹配，会跳过完整 codegen。
 - dev 插件只用 Vite `handleHotUpdate`，不维护额外依赖图。
 
@@ -59,7 +59,7 @@ export function createSchemaSDL() {
 
 插件本身不依赖 LogTape；这个 example 只是通过 `logger` 选项把本地日志注入进去。
 
-standalone `pnpm run codegen` 只给 `tsc --noEmit`、Node 测试或非 Vite 工具链使用。它从 `@gqlens/vite` 调用同一套生成能力，不要求应用额外安装 `@gqlens/codegen`：
+standalone `vp run codegen` 只给 `tsc --noEmit`、Node 测试或非 Vite 工具链使用。它从 `@gqlens/vite` 调用同一套生成能力，不要求应用额外安装 `@gqlens/codegen`：
 
 ```ts
 const writeStats = await generateGQLensFiles({
@@ -103,9 +103,9 @@ Resolver/context-only changes refresh the Yoga handler, but SDL stays identical,
 
 这个 example 默认由一个 Vite dev server 同时运行前端和 GraphQL middleware：
 
-- Vite 前端：`http://127.0.0.1:5173`
-- GraphQL：`http://127.0.0.1:5173/graphql`
-- GraphiQL：浏览器打开 `http://127.0.0.1:5173/graphql`
+- `vp run dev` 由 Pitchfork 启动；`pitchfork status app --json` 返回当前实例的 URL。
+- GraphQL 和 GraphiQL 位于该 URL 的 `/graphql`。
+- 前台排障可用 `vp run dev:local`，地址以 Vite 输出为准。
 - 前端请求相对路径 `/graphql`，由同一个 Vite dev server 处理。
 
 前端页面会通过 generated accessor 读取：
@@ -144,7 +144,7 @@ createRoot(root).render(
 
 `web/client/generated-usage.ts` 是手写的类型样例，参与 `tsc --noEmit`，用于证明 generated accessor、selector、invalidation 和 mutation descriptor 可以被前端正常消费。
 
-如果需要模拟真实前后端分离，也可以开两个终端运行 `pnpm run dev:server` 和 `pnpm run dev:client`。此时前端请求仍然使用相对路径 `/graphql`，由 Vite proxy 转发到独立 Elysia server。
+如果需要模拟真实前后端分离，运行 `vp run dev:split`。Pitchfork 先启动 Elysia `backend`，再将其实际端口注入 `client` 的 Vite proxy。前端请求仍然使用相对路径 `/graphql`。
 
 ## GQLens DX 证明点
 
@@ -163,7 +163,7 @@ const post = q.post({ id: postIds[0] ?? "p1" });
 - `api.comment.add` 这类 mutation descriptor 由 schema 生成，变量序列化和结果类型保持一致。
 - `defineInvalidation((q) => q.post({ id }).comments.ids)` 用同一套 accessor 表达 cache 影响范围。
 
-`web/client/generated-usage.ts` 里同时放了正例和 `@ts-expect-error` 反例。`pnpm run typecheck` 会验证：访问不存在字段、缺少 query 参数、漏传 mutation input、使用不存在的 mutation group 都会失败。
+`web/client/generated-usage.ts` 里同时放了正例和 `@ts-expect-error` 反例。`vp run typecheck` 会验证：访问不存在字段、缺少 query 参数、漏传 mutation input、使用不存在的 mutation group 都会失败。
 
 ## 日志
 
@@ -176,7 +176,7 @@ const post = q.post({ id: postIds[0] ?? "p1" });
 默认日志级别是 `info`。如果要看 resolver-only 变更时“SDL 未变化，所以跳过 codegen”的细节：
 
 ```sh
-GQLENS_EXAMPLE_LOG_LEVEL=debug pnpm run dev
+GQLENS_EXAMPLE_LOG_LEVEL=debug vp run dev
 ```
 
 ## 生成文件
@@ -192,40 +192,44 @@ GQLENS_EXAMPLE_LOG_LEVEL=debug pnpm run dev
 
 ## 运行
 
-先在仓库根目录构建本地包：
+本示例属于仓库根工作区，共享 `mise.toml`、catalog 和 lockfile。先进入仓库根目录安装，再进入本目录验证；Vite Task 会构建所需的本地包：
 
 ```sh
-pnpm run verify
-```
-
-再进入本示例目录：
-
-```sh
-pnpm install
-pnpm run verify
+mise trust
+mise install
+mise exec -- vp install --frozen-lockfile
+cd examples/yoga-vite-codegen
+mise exec -- vp run verify
 ```
 
 开发时默认只需要：
 
 ```sh
-pnpm run dev
+vp run dev
 ```
 
-`pnpm run dev` 和 `pnpm run build` 都由 Vite 插件自动生成 `web/gqlens/*`，不需要先运行 `pnpm run codegen`。
+`vp run dev` 由 Vite 插件生成 `web/gqlens/*`；`vp run build` 通过原生任务前置准备生成物，
+再由插件检查元数据并按需更新。两者都不需要手动先运行 `vp run codegen`。
 
-如果要模拟前后端分离，开两个终端：
+如果要模拟前后端分离：
 
 ```sh
-pnpm run dev:server
-pnpm run dev:client
+vp run dev:split
+pitchfork status client --json
+pitchfork logs client --since 5min -n 100 --no-pager
+pitchfork stop client backend
 ```
+
+单服务模式用 `pitchfork stop app` 停止。默认候选端口由 Pitchfork 分配并可递增；前台调试 `vp run dev:local` 可显式设置 `HOST`/`PORT`。
+
+服务由仓库根 `pitchfork.toml` 管理；同名 checkout 同时运行时，在根目录忽略的 `pitchfork.local.toml` 中设置不同的 `namespace`。
 
 也可以单独检查生成物和类型。这里的 `codegen` 是给 `tsc`/Node 测试这种绕过 Vite 的命令使用：
 
 ```sh
-pnpm run codegen
-pnpm run typecheck
-pnpm run test
+vp run codegen
+vp run typecheck
+vp run test
 ```
 
 这个示例的 schema 仍使用 `graphql` 原生构造器，HTTP 外壳使用 Elysia。换成 GQLoom 时保持边界不变，只需要把 `createSchema()` 的实现替换成 `weave(...)`；换成 Hono/Fastify/Express 时也只需要替换 `src/http-app.ts`，`src/graphql-entry.ts` 和 Vite/GQLens HMR 路径不变。

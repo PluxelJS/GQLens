@@ -1,0 +1,31 @@
+[settings.proxy]
+enable = true
+https = false
+host = "127.0.0.1"
+tld = "localhost"
+lan = false
+port = 8088
+auto_trust = false
+dns = false
+sync_hosts = false
+
+[daemons.app]
+run = "vp run gqlens-yoga-vite-codegen-example#serve"
+mise = true
+port = { expect = [5173], bump = 100 }
+ready_output = { pattern = "Local:", timeout = "2m" }
+
+[daemons.backend]
+run = "vp run gqlens-yoga-vite-codegen-example#serve-backend"
+mise = true
+port = { expect = [4000], bump = 100 }
+proxy = false
+ready_output = { pattern = "Elysia example server listening", timeout = "2m" }
+
+[daemons.client]
+run = "vp run gqlens-yoga-vite-codegen-example#serve"
+mise = true
+depends = ["backend"]
+env = { GRAPHQL_PROXY_TARGET = "http://127.0.0.1:{{ daemons.backend.port }}" }
+port = { expect = [5173], bump = 100 }
+ready_output = { pattern = "Local:", timeout = "2m" }

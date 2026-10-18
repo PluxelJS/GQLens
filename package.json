@@ -7,32 +7,28 @@
   },
   "type": "module",
   "scripts": {
-    "build": "pnpm exec turbo run build",
-    "postbuild": "pnpm source-declarations:check",
+    "build": "vp run workspace:build",
+    "test": "vp run workspace:test",
+    "typecheck": "vp run workspace:types",
+    "check": "vp check",
+    "fix": "vp check --fix",
+    "verify": "vp run workspace:verify",
     "changeset": "changeset",
-    "release:check": "node scripts/check-release-invariants.mjs",
-    "release:smoke": "node scripts/smoke-packages.mjs",
-    "source-declarations:check": "node scripts/check-source-declarations.mjs",
     "release:version": "changeset version",
-    "release:publish": "pnpm run verify && pnpm run release:smoke && changeset publish",
-    "publish:all": "pnpm run release:publish",
-    "lint": "oxlint -c oxlint.config.mts --deny-warnings --report-unused-disable-directives packages",
-    "format": "oxfmt --check .",
-    "format:write": "oxfmt --write .",
-    "verify": "pnpm run release:check && pnpm run lint && pnpm run format && pnpm exec turbo run typecheck build test && pnpm source-declarations:check"
+    "release:publish": "vp run release-publish",
+    "publish:all": "vp run release-publish",
+    "hooks:install": "hk install --mise"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1",
-    "@types/node": "^26.4.0",
-    "oxfmt": "^0.65.0",
-    "oxlint": "^1.80.0",
-    "tsdown": "^0.22.14",
-    "turbo": "^2.10.12",
-    "typescript": "^7.0.2",
-    "vitest": "5.0.0"
+    "@changesets/cli": "catalog:tooling",
+    "@types/node": "catalog:tooling",
+    "pncat": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:test"
   },
   "engines": {
     "node": ">=24.12"
   },
-  "packageManager": "pnpm@11.5.2"
+  "packageManager": "pnpm@11.28.2"
 }

@@ -27,20 +27,21 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "tsdown",
-    "update-fixtures": "npm run build && node scripts/update-fixtures.mjs"
+    "typecheck": "vp run check-types",
+    "test": "vp run check-tests",
+    "build": "vp run compile",
+    "update-fixtures": "vp run compile && node scripts/update-fixtures.mjs"
   },
   "dependencies": {
-    "@graphql-codegen/core": "^6.2.0",
-    "@graphql-codegen/typescript": "^6.1.0",
-    "@graphql-codegen/visitor-plugin-common": "^7.2.5",
-    "code-block-writer": "^13.0.3"
+    "@graphql-codegen/core": "catalog:backend",
+    "@graphql-codegen/typescript": "catalog:backend",
+    "@graphql-codegen/visitor-plugin-common": "catalog:backend",
+    "code-block-writer": "catalog:backend"
   },
   "devDependencies": {
     "@gqlens/core": "workspace:*",
-    "graphql": "^17.0.2"
+    "graphql": "catalog:backend",
+    "vite-plus": "catalog:tooling"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

@@ -36,12 +36,15 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "tsdown"
+    "typecheck": "vp run check-types",
+    "test": "vp run check-tests",
+    "build": "vp run compile"
   },
   "dependencies": {
-    "alien-signals": "^3.2.1"
+    "alien-signals": "catalog:backend"
+  },
+  "devDependencies": {
+    "vite-plus": "catalog:tooling"
   },
   "engines": {
     "node": ">=24.12"

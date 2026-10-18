@@ -97,7 +97,7 @@ src/* change clears handler cache
         ↓
 next request imports /src/graphql-entry.ts again
 
-vite build
+vp build
         ↓
 native import /src/graphql-entry.ts default export
         ↓
@@ -116,7 +116,7 @@ GraphQL 会拒绝从另一个 package instance 或 ESM/CJS realm 创建的 `Grap
 
 为保证 middleware 模式可靠，`src/schema.ts` 使用 Node `createRequire()` 加载 `graphql` 的 CJS 入口，让 schema 构造侧和 Yoga 执行侧共享同一份 GraphQL instance。`createSchemaSDL()` 也在 schema 模块内部打印 SDL，避免把 `GraphQLSchema` 对象交给另一份 `graphql` 去 `printSchema()`。
 
-前后端分离模式仍然可用：`pnpm run dev:server` 启动独立 Elysia server，`pnpm run dev:client` 通过 Vite proxy 转发 `/graphql`。
+前后端分离模式仍然可用：`vp run dev:split` 通过 Pitchfork 的 `client -> backend` 依赖启动独立 Elysia server，并将其实际端口注入 Vite proxy。
 
 Yoga 显式开启 GraphiQL，所以浏览器 GET `/graphql` 时可以直接使用查询页面；Elysia 和 Vite middleware 都挂载同一个 endpoint 语义。
 

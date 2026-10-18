@@ -6,5 +6,6 @@ coverage
 *.log
 pnpm-publish-summary.json
 .aube
-.turbo
+.vite
 .DS_Store
+pitchfork.local.toml

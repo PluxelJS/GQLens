@@ -33,6 +33,7 @@ packages/core
   src/collector.ts      per-reader selection collection
   src/transport.ts      default HTTP/live transport helpers
   codegen/index.ts      generated accessor runtime
+  oxlint/index.ts       selector/accessor usage lint rules (public @gqlens/core/oxlint)
 
 packages/codegen
   src/accessor.ts       typed accessor/hooks/schema contract/mutation descriptor generator
@@ -50,8 +51,6 @@ packages/react
 packages/solid
   src/index.ts          createQuery/createLiveQuery, createMutation
 
-packages/oxlint-plugin
-  src/index.ts          selector/accessor usage lint rules
 ```
 
 ## 核心数据结构
@@ -307,15 +306,15 @@ Mutation：
 常用命令：
 
 ```bash
-npm run test --workspace @gqlens/core
-npm run test --workspace @gqlens/codegen
-npm run test --workspace @gqlens/react
-npm run test --workspace @gqlens/solid
-npm run verify
+vp run @gqlens/core#check-tests
+vp run @gqlens/codegen#check-tests
+vp run @gqlens/react#check-tests
+vp run @gqlens/solid#check-tests
+vp run verify
 ```
 
 最终提交前应跑：
 
 ```bash
-npm run verify
+vp run verify
 ```

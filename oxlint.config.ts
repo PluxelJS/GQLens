@@ -1,6 +1,6 @@
-import { defineConfig } from "oxlint";
+import type { OxlintConfig } from "vite-plus/lint";
 
-const config: ReturnType<typeof defineConfig> = defineConfig({
+const lint: OxlintConfig = {
   plugins: ["typescript", "unicorn", "oxc", "import", "promise", "node", "vitest"],
   jsPlugins: ["./packages/core/oxlint/index.ts"],
   categories: {
@@ -93,11 +93,29 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     "**/dist/**",
     "**/coverage/**",
     "**/out/**",
-    ".turbo/**",
+    ".vite/**",
     "packages/codegen/test/fixtures/**/accessor.ts",
     "packages/codegen/test/fixtures/**/invalidation.ts",
     "packages/codegen/test/fixtures/**/types.ts",
   ],
-});
+};
 
-export default config;
+export default {
+  ...lint,
+  // Preserve the existing package-only, non-type-aware lint gate; declarations
+  // are checked by each package's explicit TypeScript task. The example's
+  // native check-tools task selects its own correctness-only lint config.
+  options: {
+    typeAware: false,
+    typeCheck: false,
+    denyWarnings: true,
+    reportUnusedDisableDirectives: "error",
+  },
+  ignorePatterns: [
+    ...(lint.ignorePatterns ?? []),
+    "examples/**",
+    "scripts/**",
+    "vite.config.ts",
+    "pncat.config.ts",
+  ],
+} satisfies OxlintConfig;

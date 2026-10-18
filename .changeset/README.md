@@ -2,7 +2,7 @@
 
 GQLens keeps all `@gqlens/*` packages on one `major.minor` release line.
 
-Use `pnpm changeset` for user-facing changes, then `pnpm run release:version`
+Use `vp run changeset` for user-facing changes, then `vp run release:version`
 to apply versions before publishing.
 
 - Patch releases should list only the packages that changed.

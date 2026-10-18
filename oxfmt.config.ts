@@ -1,10 +1,9 @@
-{
-  "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": [
+import type { OxfmtConfig } from "vite-plus/fmt";
+
+const fmt: OxfmtConfig = {
+  ignorePatterns: [
     ".git/**",
-    "aube-lock.yaml",
-    "**/aube-lock.yaml",
-    ".turbo/**",
+    ".vite/**",
     "dist/**",
     "packages/*/dist/**",
     "packages/codegen/test/fixtures/**/accessor.ts",
@@ -13,6 +12,9 @@
     "packages/codegen/test/fixtures/**/types.ts",
     "node_modules/**",
     "out/**",
-    "coverage/**"
-  ]
-}
+    "coverage/**",
+    "examples/yoga-vite-codegen/web/gqlens/*.ts",
+  ],
+};
+
+export default fmt;

@@ -26,18 +26,19 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "tsdown"
+    "typecheck": "vp run check-types",
+    "test": "vp run check-tests",
+    "build": "vp run compile"
   },
   "devDependencies": {
     "@gqlens/core": "workspace:*",
-    "@testing-library/react": "^16.3.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
-    "jsdom": "^30.0.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "@testing-library/react": "catalog:test",
+    "@types/react": "catalog:frontend",
+    "@types/react-dom": "catalog:frontend",
+    "jsdom": "catalog:test",
+    "react": "catalog:frontend",
+    "react-dom": "catalog:frontend",
+    "vite-plus": "catalog:tooling"
   },
   "peerDependencies": {
     "@gqlens/core": "workspace:*",

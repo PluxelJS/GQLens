@@ -14,22 +14,26 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v5
         with:
           cache: true
           install: true
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: vp install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm run lint
+      - name: Validate hooks
+        run: hk validate
 
-      - name: Format check
-        run: pnpm run format
+      - name: Restore Vite task cache
+        uses: actions/cache@v6
+        with:
+          path: node_modules/.vite/task-cache
+          key: gqlens-vp-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: gqlens-vp-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      - name: Type check, build & test
-        run: pnpm exec turbo run typecheck build test
+      - name: Verify
+        run: vp run verify
