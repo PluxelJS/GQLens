@@ -36,4 +36,4 @@ jobs:
           restore-keys: gqlens-vp-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
       - name: Verify
-        run: vp run verify
+        run: vp run --concurrency-limit=2 workspace:verify

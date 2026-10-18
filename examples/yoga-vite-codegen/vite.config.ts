@@ -1,7 +1,6 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite-plus";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
-import { gqlens } from "@gqlens/vite";
 import { configureExampleLogging, getExampleLogger } from "./src/logging.ts";
 
 configureExampleLogging();
@@ -29,19 +28,26 @@ export default defineConfig({
     },
   },
 
-  plugins: [
-    gqlens({
-      output: "web/gqlens",
-      entry: "/src/graphql-entry.ts",
-      endpoint: graphQLEndpoint,
-      include: graphQLRelatedFiles,
-      framework: "react",
-      logger: viteLogger,
-      middleware: !graphQLProxyTarget,
-    }),
+  plugins:
+    lazyPlugins(async () => {
+      // Resolve only when plugins run; metadata checks also work before packages build.
+      const { gqlens } = (await import(
+        import.meta.resolve("@gqlens/vite")
+      )) as typeof import("@gqlens/vite");
+      return [
+        gqlens({
+          output: "web/gqlens",
+          entry: "/src/graphql-entry.ts",
+          endpoint: graphQLEndpoint,
+          include: graphQLRelatedFiles,
+          framework: "react",
+          logger: viteLogger,
+          middleware: !graphQLProxyTarget,
+        }),
 
-    react(),
-  ],
+        react(),
+      ];
+    }) ?? [],
 
   server: {
     host: process.env.HOST ?? "127.0.0.1",
