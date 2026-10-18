@@ -17,7 +17,9 @@
     "release:version": "changeset version",
     "release:publish": "vp run release-publish",
     "publish:all": "vp run release-publish",
-    "hooks:install": "hk install --mise"
+    "hooks:install": "hk install --mise",
+    "catalog:migrate": "pncat migrate --yes",
+    "catalog:detect": "pncat detect --yes"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:tooling",

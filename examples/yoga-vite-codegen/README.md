@@ -202,6 +202,8 @@ cd examples/yoga-vite-codegen
 mise exec -- vp run verify
 ```
 
+示例服务端使用根 `pnpm-workspace.yaml` 的 `example` catalog 保留 GraphQL 16；库本身同时支持 GraphQL 16 和 17。
+
 开发时默认只需要：
 
 ```sh

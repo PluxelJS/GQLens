@@ -14,9 +14,9 @@ allowBuilds:
 
 catalogs:
   backend:
-    "@graphql-codegen/core": "^6.2.0"
-    "@graphql-codegen/typescript": "^6.1.0"
-    "@graphql-codegen/visitor-plugin-common": "^7.2.5"
+    "@graphql-codegen/core": "^6.2.2"
+    "@graphql-codegen/typescript": "^6.1.1"
+    "@graphql-codegen/visitor-plugin-common": "^7.2.9"
     "alien-signals": "^3.2.1"
     "code-block-writer": "^13.0.3"
     "graphql": "^17.0.2"

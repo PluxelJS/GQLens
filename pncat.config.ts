@@ -1,7 +1,8 @@
 import { defineConfig } from "pncat";
 
 export default defineConfig({
-  exclude: ["peerDependencies"],
+  saveExact: false,
+  depFields: { peerDependencies: false },
   catalogRules: [
     {
       name: "frontend",
