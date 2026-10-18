@@ -13,6 +13,7 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
@@ -26,17 +27,14 @@ jobs:
       - name: Install toolchain
         uses: jdx/mise-action@v5
         with:
-          cache: true
+          cache: false
           install: true
 
       - name: Install dependencies
         run: vp install --frozen-lockfile
 
-      - name: Verify
-        run: vp run verify
-
-      - name: Publish all packages
-        run: vp run publish:all
+      - name: Verify and publish all packages
+        run: vp run --concurrency-limit=2 release-publish
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
